@@ -1,383 +1,562 @@
+"use client";
+
 import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+import { formatThb } from "@/app/lib/format";
+import {
+  appendAdminLog,
+  clearSession,
+  ensureAdminEscrow,
+  ensureAdminScreening,
+  ensureCustomerAuctions,
+  getAdminEscrow,
+  getAdminLog,
+  getAdminScreening,
+  getCustomerAuctions,
+  getMockCredentials,
+  getPendingListings,
+  getSession,
+  setAdminEscrow,
+  setAdminScreening,
+  setCustomerAuctions,
+  setPendingListings,
+  STORAGE_KEYS,
+  type Session,
+} from "@/app/lib/storage";
+import type { AdminEscrowItem, AdminScreeningItem } from "@/app/mock/admin-data";
+import type { CustomerAuction } from "@/app/mock/customer-data";
+import type { SellerListing } from "@/app/lib/storage";
 
-type ScreeningItem = {
+type AdminTab = "screening" | "payment";
+
+type QueueItem = {
+  source: "admin" | "pending";
   id: string;
   title: string;
+  series: string;
   seller: string;
-  submittedAt: string;
+  startingPriceThb: number;
+  durationHours: number;
+  submittedLabel: string;
   risk: "low" | "medium" | "high";
-  startingPriceUsd: number;
 };
 
-type EscrowItem = {
-  id: string;
-  title: string;
-  buyer: string;
-  seller: string;
-  amountUsd: number;
-  status: "awaiting pickup" | "verifying" | "ready to ship";
-  dueIn: string;
+const ESCROW_FLOW: AdminEscrowItem["status"][] = [
+  "awaiting pickup",
+  "verifying",
+  "ready to ship",
+  "delivered",
+];
+
+const ESCROW_NOTE: Record<AdminEscrowItem["status"], string> = {
+  "awaiting pickup": "Pickup window in 6h",
+  verifying: "Verification in progress",
+  "ready to ship": "Ready to ship to buyer",
+  delivered: "Delivered — ready for payout",
 };
 
-const screeningQueue: ScreeningItem[] = [
-  {
-    id: "screen-1",
-    title: "SKULLPANDA: The Warmth",
-    seller: "collector_amy",
-    submittedAt: "10:22",
-    risk: "low",
-    startingPriceUsd: 80,
-  },
-  {
-    id: "screen-2",
-    title: "DIMOO Aquarium Secret",
-    seller: "milo_pop",
-    submittedAt: "09:58",
+function makeAuctionFromQueueItem(item: QueueItem, nowMs: number): CustomerAuction {
+  return {
+    id: `auction-${item.id}`,
+    title: item.title,
+    series: item.series,
+    seller: item.seller,
+    currentBidThb: item.startingPriceThb,
+    minIncrementThb: 100,
+    bids: 0,
+    endsAtMs: nowMs + item.durationHours * 60 * 60 * 1000,
+  };
+}
+
+function limitAuctions(nextAuction: CustomerAuction, existing: CustomerAuction[]) {
+  const combined = [nextAuction, ...existing];
+  combined.sort((a, b) => a.endsAtMs - b.endsAtMs);
+  return combined.slice(0, 2);
+}
+
+function riskTone(risk: QueueItem["risk"]) {
+  if (risk === "high") return "border-rose-300 bg-rose-50 text-rose-800";
+  if (risk === "medium") return "border-amber-300 bg-amber-50 text-amber-800";
+  return "border-emerald-300 bg-emerald-50 text-emerald-800";
+}
+
+function escrowTone(status: AdminEscrowItem["status"]) {
+  if (status === "verifying") return "border-sky-300 bg-sky-50 text-sky-800";
+  if (status === "ready to ship") return "border-emerald-300 bg-emerald-50 text-emerald-800";
+  if (status === "delivered") return "border-zinc-400 bg-zinc-100 text-zinc-800";
+  return "border-zinc-300 bg-zinc-50 text-zinc-700";
+}
+
+function toQueueItemFromAdmin(item: AdminScreeningItem): QueueItem {
+  return {
+    source: "admin",
+    id: item.id,
+    title: item.title,
+    series: "Screened",
+    seller: item.seller,
+    startingPriceThb: item.startingPriceThb,
+    durationHours: item.durationHours,
+    submittedLabel: item.submittedLabel,
+    risk: item.risk,
+  };
+}
+
+function toQueueItemFromPending(item: SellerListing): QueueItem {
+  return {
+    source: "pending",
+    id: item.id,
+    title: item.title,
+    series: item.series,
+    seller: item.seller,
+    startingPriceThb: item.startingPriceThb,
+    durationHours: item.durationHours,
+    submittedLabel: new Date(item.submittedAtMs).toLocaleTimeString(),
     risk: "medium",
-    startingPriceUsd: 60,
-  },
-  {
-    id: "screen-3",
-    title: "LABUBU Forest Night",
-    seller: "serena_box",
-    submittedAt: "09:41",
-    risk: "high",
-    startingPriceUsd: 120,
-  },
-];
-
-const escrowItems: EscrowItem[] = [
-  {
-    id: "escrow-1",
-    title: "HIRONO Mime Limited",
-    buyer: "bidder_jay",
-    seller: "toy_quest",
-    amountUsd: 128,
-    status: "awaiting pickup",
-    dueIn: "Pickup in 6h",
-  },
-  {
-    id: "escrow-2",
-    title: "DIMOO Aquarium Secret",
-    buyer: "you",
-    seller: "milo_pop",
-    amountUsd: 96,
-    status: "verifying",
-    dueIn: "Verify in 2d",
-  },
-  {
-    id: "escrow-3",
-    title: "SKULLPANDA: The Warmth",
-    buyer: "bidder_lin",
-    seller: "collector_amy",
-    amountUsd: 142,
-    status: "ready to ship",
-    dueIn: "Ship today",
-  },
-];
-
-const verificationFlow = [
-  {
-    stage: "Courier Pickup",
-    detail: "Dispatch rider and confirm handoff from seller.",
-  },
-  {
-    stage: "Authenticity Check",
-    detail: "Inspect condition, originality, and match to listing photos.",
-  },
-  {
-    stage: "Ship to Buyer",
-    detail: "Release shipment only after passing verification.",
-  },
-  {
-    stage: "Payout Seller",
-    detail: "Deduct service fee and pay seller within 7 days of delivery.",
-  },
-] as const;
-
-function formatUsd(value: number) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  }).format(value);
-}
-
-function riskTone(risk: ScreeningItem["risk"]) {
-  if (risk === "high") {
-    return "border-rose-300/40 bg-rose-300/10 text-rose-100";
-  }
-  if (risk === "medium") {
-    return "border-amber-300/40 bg-amber-300/10 text-amber-100";
-  }
-  return "border-emerald-300/40 bg-emerald-300/10 text-emerald-100";
-}
-
-function escrowTone(status: EscrowItem["status"]) {
-  if (status === "verifying") {
-    return "border-sky-300/40 bg-sky-300/10 text-sky-100";
-  }
-  if (status === "ready to ship") {
-    return "border-emerald-300/40 bg-emerald-300/10 text-emerald-100";
-  }
-  return "border-pink-300/40 bg-pink-300/10 text-pink-100";
+  };
 }
 
 export default function AdminPage() {
-  const totalEscrowUsd = escrowItems.reduce((sum, item) => sum + item.amountUsd, 0);
+  const [screening, setScreening] = useState<AdminScreeningItem[]>([]);
+  const [pendingListings, setPending] = useState<SellerListing[]>([]);
+  const [escrow, setEscrow] = useState<AdminEscrowItem[]>([]);
+  const [, setAuctions] = useState<CustomerAuction[]>([]);
+  const [, setAdminLog] = useState<string[]>([]);
+  const [nowMs, setNowMs] = useState(0);
+  const [session, setSession] = useState<Session | null>(null);
+  const [queueFilter, setQueueFilter] = useState<"all" | "seller" | "platform">("all");
+  const [activeTab, setActiveTab] = useState<AdminTab>("screening");
+
+  useEffect(() => {
+    const initialScreening = ensureAdminScreening();
+    const initialEscrow = ensureAdminEscrow();
+    const initialAuctions = ensureCustomerAuctions();
+    const initialPending = getPendingListings();
+    const initialLog = getAdminLog();
+    const initialSession = getSession();
+
+    const rafId = window.requestAnimationFrame(() => {
+      setScreening(initialScreening);
+      setEscrow(initialEscrow);
+      setAuctions(initialAuctions);
+      setPending(initialPending);
+      setAdminLog(initialLog);
+      setNowMs(Date.now());
+      setSession(initialSession);
+    });
+
+    const timer = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, 1000);
+
+    return () => {
+      window.cancelAnimationFrame(rafId);
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleStorage = (event: StorageEvent) => {
+      if (!event.key) return;
+      if (event.key === STORAGE_KEYS.adminScreening) {
+        setScreening(getAdminScreening());
+      }
+      if (event.key === STORAGE_KEYS.pendingListings) {
+        setPending(getPendingListings());
+      }
+      if (event.key === STORAGE_KEYS.adminEscrow) {
+        setEscrow(getAdminEscrow());
+      }
+      if (event.key === STORAGE_KEYS.customerAuctions) {
+        setAuctions(getCustomerAuctions());
+      }
+      if (event.key === STORAGE_KEYS.adminLog) {
+        setAdminLog(getAdminLog());
+      }
+      if (event.key === STORAGE_KEYS.session) {
+        setSession(getSession());
+      }
+    };
+
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, []);
+
+  const queue: QueueItem[] = useMemo(() => {
+    const fromAdmin = screening.map(toQueueItemFromAdmin);
+    const fromPending = pendingListings.map(toQueueItemFromPending);
+    return [...fromPending, ...fromAdmin];
+  }, [pendingListings, screening]);
+
+  const filteredQueue = useMemo(() => {
+    if (queueFilter === "seller") {
+      return queue.filter((item) => item.source === "pending");
+    }
+    if (queueFilter === "platform") {
+      return queue.filter((item) => item.source === "admin");
+    }
+    return queue;
+  }, [queue, queueFilter]);
+
+  const heldThb = useMemo(
+    () => escrow.reduce((sum, item) => sum + item.amountThb, 0),
+    [escrow]
+  );
+
+  const sessionRoute = session ? getMockCredentials(session.role).redirectTo : "/login";
+
+  function approveItem(item: QueueItem) {
+    if (nowMs === 0) {
+      return;
+    }
+    const newAuction = makeAuctionFromQueueItem(item, nowMs);
+
+    const existingAuctions = ensureCustomerAuctions();
+    const nextAuctions = limitAuctions(newAuction, existingAuctions);
+    setCustomerAuctions(nextAuctions);
+    setAuctions(nextAuctions);
+
+    if (item.source === "pending") {
+      const nextPending = pendingListings.filter((entry) => entry.id !== item.id);
+      setPendingListings(nextPending);
+      setPending(nextPending);
+      const nextLog = appendAdminLog(`Approved seller listing: ${item.title}`);
+      setAdminLog(nextLog);
+      return;
+    }
+
+    const nextScreening = screening.filter((entry) => entry.id !== item.id);
+    setAdminScreening(nextScreening);
+    setScreening(nextScreening);
+    const nextLog = appendAdminLog(`Approved screened item: ${item.title}`);
+    setAdminLog(nextLog);
+  }
+
+  function rejectItem(item: QueueItem) {
+    if (item.source === "pending") {
+      const nextPending = pendingListings.filter((entry) => entry.id !== item.id);
+      setPendingListings(nextPending);
+      setPending(nextPending);
+      const nextLog = appendAdminLog(`Rejected seller listing: ${item.title}`);
+      setAdminLog(nextLog);
+      return;
+    }
+
+    const nextScreening = screening.filter((entry) => entry.id !== item.id);
+    setAdminScreening(nextScreening);
+    setScreening(nextScreening);
+    const nextLog = appendAdminLog(`Rejected screened item: ${item.title}`);
+    setAdminLog(nextLog);
+  }
+
+  function advanceEscrow(id: string) {
+    const nextEscrow = escrow.map((item) => {
+      if (item.id !== id) return item;
+      const currentIndex = ESCROW_FLOW.indexOf(item.status);
+      const nextStatus = ESCROW_FLOW[Math.min(currentIndex + 1, ESCROW_FLOW.length - 1)];
+      return {
+        ...item,
+        status: nextStatus,
+        note: ESCROW_NOTE[nextStatus],
+      };
+    });
+
+    setAdminEscrow(nextEscrow);
+    setEscrow(nextEscrow);
+    const target = nextEscrow.find((item) => item.id === id);
+    if (target) {
+      const nextLog = appendAdminLog(`Escrow updated: ${target.title} → ${target.status}`);
+      setAdminLog(nextLog);
+    }
+  }
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100">
-      <header className="border-b border-white/10 bg-zinc-950/80 backdrop-blur">
-        <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4">
-          <div className="flex items-center gap-3">
-            <span className="inline-flex h-2.5 w-2.5 rounded-full bg-pink-400" />
-            <p className="text-sm font-semibold uppercase tracking-[0.14em] text-pink-300">
+    <div className="min-h-screen bg-zinc-50 text-zinc-900">
+      <header className="border-b border-zinc-200 bg-white">
+        <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-6 py-5">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
               Admin View
             </p>
+            <h1 className="text-lg font-semibold text-zinc-900">Operations</h1>
           </div>
-          <nav className="flex items-center gap-3">
+          <nav className="flex items-center gap-2">
             <Link
               href="/"
-              className="rounded-full border border-white/15 px-4 py-2 text-sm font-medium text-white/90 transition hover:border-pink-300 hover:text-pink-200"
+              className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-800 transition hover:border-zinc-400"
             >
               Landing
             </Link>
             <Link
+              href="/login"
+              className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-800 transition hover:border-zinc-400"
+            >
+              Login
+            </Link>
+            <Link
               href="/customer"
-              className="rounded-full bg-white/10 px-4 py-2 text-sm font-semibold text-white transition hover:bg-pink-300 hover:text-zinc-950"
+              className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-800 transition hover:border-zinc-400"
             >
               Customer
             </Link>
+            <Link
+              href="/seller"
+              className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-900 transition hover:border-zinc-400"
+            >
+              Seller
+            </Link>
+            {session ? (
+              <button
+                type="button"
+                onClick={() => {
+                  clearSession();
+                  setSession(null);
+                }}
+                className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800"
+              >
+                Sign out
+              </button>
+            ) : null}
           </nav>
         </div>
       </header>
 
-      <main className="mx-auto flex w-full max-w-6xl flex-col gap-10 px-6 pb-16 pt-12">
-        <section className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-          <div className="max-w-3xl">
-            <p className="text-sm font-medium uppercase tracking-[0.2em] text-pink-300/90">
-              Operations Prototype
-            </p>
-            <h1 className="mt-3 text-4xl font-semibold text-white sm:text-5xl">
-              Escrow, verification, and payout control center.
-            </h1>
-            <p className="mt-4 max-w-2xl text-base leading-7 text-zinc-300">
-              This admin-side prototype showcases the workflow that keeps buyers
-              safe: screening listings, holding payments, verifying authenticity,
-              and releasing funds only after delivery.
-            </p>
-          </div>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {[
-              { label: "Screening", value: screeningQueue.length.toString() },
-              { label: "Escrow", value: escrowItems.length.toString() },
-              { label: "Held", value: formatUsd(totalEscrowUsd) },
-              { label: "SLA", value: "7 days" },
-            ].map((stat) => (
-              <div
-                key={stat.label}
-                className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-center"
-              >
-                <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">
-                  {stat.label}
-                </p>
-                <p className="mt-1 text-xl font-semibold text-white">
-                  {stat.value}
-                </p>
-              </div>
-            ))}
-          </div>
+      <main className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-6 py-10">
+        <section className="flex flex-col gap-2">
+          <h2 className="text-3xl font-semibold text-zinc-900 sm:text-4xl">
+            Keep it simple: screen, then process payment.
+          </h2>
+          <p className="max-w-3xl text-sm leading-6 text-zinc-600">
+            This admin view is intentionally minimal for demos.
+          </p>
         </section>
 
-        <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1.05fr_1fr]">
-          <div className="flex flex-col gap-6">
-            <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-6">
-              <div className="flex items-end justify-between">
-                <div>
-                  <h2 className="text-2xl font-semibold text-white">Screening Queue</h2>
-                  <p className="mt-1 text-sm text-zinc-400">
-                    Admin review before listings go live helps prevent fraud and
-                    mismatched items.
-                  </p>
-                </div>
+        {session ? (
+          <section className="flex flex-col gap-3 rounded-2xl border border-violet-200 bg-violet-50 px-5 py-4 text-sm text-violet-900 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="font-semibold">Signed in as {session.name}</p>
+              <p className="text-xs uppercase tracking-[0.2em] text-violet-700">
+                {session.role}
+              </p>
+            </div>
+            <Link
+              href={sessionRoute}
+              className="rounded-lg border border-violet-200 bg-white px-4 py-2 text-sm font-semibold text-violet-700 transition hover:border-violet-300"
+            >
+              Open your dashboard
+            </Link>
+          </section>
+        ) : (
+          <section className="flex flex-col gap-2 rounded-2xl border border-zinc-200 bg-white px-5 py-4 text-sm text-zinc-700 sm:flex-row sm:items-center sm:justify-between">
+            <p className="font-semibold">You are not signed in.</p>
+            <Link
+              href="/login"
+              className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800"
+            >
+              Go to login
+            </Link>
+          </section>
+        )}
+
+        <section className="flex flex-wrap gap-2">
+          {[
+            { key: "screening" as const, label: "Screening", count: queue.length },
+            { key: "payment" as const, label: "Payment Processing", count: escrow.length },
+          ].map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => setActiveTab(tab.key)}
+              className={`rounded-full border px-5 py-2 text-xs font-semibold uppercase tracking-[0.2em] transition ${
+                activeTab === tab.key
+                  ? "border-violet-300 bg-violet-50 text-violet-700"
+                  : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-400"
+              }`}
+            >
+              {tab.label} ({tab.count})
+            </button>
+          ))}
+        </section>
+
+        {activeTab === "screening" ? (
+          <section className="rounded-3xl border border-zinc-200 bg-white p-6">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-zinc-900">Screening queue</h3>
+                <p className="mt-1 text-sm text-zinc-600">
+                  Approve items to keep the buyer view focused.
+                </p>
+              </div>
+              <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-600">
+                {filteredQueue.length}
+              </div>
+            </div>
+
+            <div className="mt-4 flex flex-wrap gap-2">
+              {[
+                { key: "all", label: "All" },
+                { key: "seller", label: "Seller" },
+                { key: "platform", label: "Platform" },
+              ].map((filter) => (
                 <button
+                  key={filter.key}
                   type="button"
-                  className="rounded-full border border-white/10 bg-black/30 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-zinc-300 transition hover:border-pink-300 hover:text-pink-200"
+                  onClick={() => setQueueFilter(filter.key as typeof queueFilter)}
+                  className={`rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] transition ${
+                    queueFilter === filter.key
+                      ? "border-violet-300 bg-violet-50 text-violet-700"
+                      : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-400"
+                  }`}
                 >
-                  Bulk Review
+                  {filter.label}
                 </button>
-              </div>
+              ))}
+            </div>
 
-              <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
-                {screeningQueue.map((item) => (
-                  <article
-                    key={item.id}
-                    className="flex h-full flex-col rounded-3xl border border-white/10 bg-black/30 p-4"
-                  >
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm font-semibold text-white">{item.title}</p>
-                      <span
-                        className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${riskTone(
-                          item.risk
-                        )}`}
-                      >
-                        {item.risk}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-xs text-zinc-500">Seller: {item.seller}</p>
-                    <div className="mt-4 h-24 rounded-2xl border border-white/10 bg-gradient-to-br from-pink-500/25 via-fuchsia-500/10 to-violet-500/25" />
-                    <div className="mt-4 grid grid-cols-2 gap-3">
-                      <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
-                        <p className="text-[11px] uppercase tracking-[0.2em] text-zinc-500">
-                          Submitted
-                        </p>
-                        <p className="mt-1 text-sm font-semibold text-white">{item.submittedAt}</p>
+            {filteredQueue.length === 0 ? (
+              <p className="mt-4 text-sm text-zinc-600">No items to review.</p>
+            ) : (
+              <div className="mt-4 flex flex-col gap-3">
+                {filteredQueue.map((item) => {
+                  const sourceLabel = item.source === "pending" ? "seller" : "platform";
+
+                  return (
+                    <article
+                      key={`${item.source}-${item.id}`}
+                      className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4"
+                    >
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <p className="text-base font-semibold text-zinc-900">{item.title}</p>
+                          <p className="mt-1 text-xs uppercase tracking-[0.2em] text-zinc-500">
+                            {item.series} • {item.seller}
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="rounded-lg border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-700">
+                            {sourceLabel}
+                          </span>
+                          <span
+                            className={`rounded-lg border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${riskTone(
+                              item.risk
+                            )}`}
+                          >
+                            {item.risk}
+                          </span>
+                          <span className="rounded-lg border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-700">
+                            {item.submittedLabel}
+                          </span>
+                        </div>
                       </div>
-                      <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
-                        <p className="text-[11px] uppercase tracking-[0.2em] text-zinc-500">
-                          Start price
-                        </p>
-                        <p className="mt-1 text-sm font-semibold text-pink-300">
-                          {formatUsd(item.startingPriceUsd)}
-                        </p>
+
+                      <div className="mt-3 grid grid-cols-2 gap-2">
+                        <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2">
+                          <p className="text-[11px] uppercase tracking-[0.2em] text-zinc-500">
+                            Start
+                          </p>
+                          <p className="mt-1 text-sm font-semibold text-zinc-900">
+                            {formatThb(item.startingPriceThb)}
+                          </p>
+                        </div>
+                        <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2">
+                          <p className="text-[11px] uppercase tracking-[0.2em] text-zinc-500">
+                            Duration
+                          </p>
+                          <p className="mt-1 text-sm font-semibold text-zinc-900">
+                            {item.durationHours}h
+                          </p>
+                        </div>
                       </div>
-                    </div>
-                    <div className="mt-4 grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        className="rounded-2xl border border-emerald-300/40 bg-emerald-300/10 px-3 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-100 transition hover:bg-emerald-300/20"
-                      >
-                        Approve
-                      </button>
-                      <button
-                        type="button"
-                        className="rounded-2xl border border-rose-300/40 bg-rose-300/10 px-3 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-rose-100 transition hover:bg-rose-300/20"
-                      >
-                        Reject
-                      </button>
-                    </div>
-                  </article>
-                ))}
+
+                      <div className="mt-3 grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => approveItem(item)}
+                          disabled={nowMs === 0}
+                          className="rounded-xl bg-zinc-900 px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
+                        >
+                          Approve
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => rejectItem(item)}
+                          className="rounded-xl border border-zinc-300 px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-800 transition hover:border-zinc-400"
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })}
               </div>
-            </section>
+            )}
+          </section>
+        ) : (
+          <section className="rounded-3xl border border-zinc-200 bg-white p-6">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-zinc-900">Payment processing</h3>
+                <p className="mt-1 text-sm text-zinc-600">
+                  Advance escrow cases to simulate payout readiness.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-600">
+                  Cases {escrow.length}
+                </div>
+                <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-600">
+                  Held {formatThb(heldThb)}
+                </div>
+              </div>
+            </div>
 
-            <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-6">
-              <h2 className="text-2xl font-semibold text-white">Verification Pipeline</h2>
-              <p className="mt-1 text-sm text-zinc-400">
-                The escrow workflow is operationalized as a clear, auditable
-                pipeline.
-              </p>
+            <div className="mt-4 flex flex-col gap-3">
+              {escrow.map((item) => (
+                <article
+                  key={item.id}
+                  className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4"
+                >
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="text-base font-semibold text-zinc-900">{item.title}</p>
+                      <p className="mt-1 text-xs uppercase tracking-[0.2em] text-zinc-500">
+                        {item.buyer} • {item.seller}
+                      </p>
+                    </div>
+                    <span
+                      className={`rounded-lg border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${escrowTone(
+                        item.status
+                      )}`}
+                    >
+                      {item.status}
+                    </span>
+                  </div>
 
-              <ol className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                {verificationFlow.map((step, index) => (
-                  <li
-                    key={step.stage}
-                    className="rounded-2xl border border-white/10 bg-black/30 p-4"
-                  >
-                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-pink-300/80">
-                      Stage {index + 1}
+                  <div className="mt-3 flex items-end justify-between">
+                    <div>
+                      <p className="text-[11px] uppercase tracking-[0.2em] text-zinc-500">
+                        Held
+                      </p>
+                      <p className="mt-1 text-lg font-semibold text-zinc-900">
+                        {formatThb(item.amountThb)}
+                      </p>
+                    </div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                      {item.note}
                     </p>
-                    <p className="mt-2 text-base font-semibold text-white">{step.stage}</p>
-                    <p className="mt-1 text-sm leading-6 text-zinc-400">{step.detail}</p>
-                  </li>
-                ))}
-              </ol>
-            </section>
-          </div>
-
-          <div className="flex flex-col gap-6">
-            <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-6">
-              <div className="flex items-end justify-between">
-                <div>
-                  <h2 className="text-2xl font-semibold text-white">Escrow Ledger</h2>
-                  <p className="mt-1 text-sm text-zinc-400">
-                    Funds are held until verification and delivery are complete.
-                  </p>
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-2 text-right">
-                  <p className="text-[11px] uppercase tracking-[0.2em] text-zinc-500">
-                    Total held
-                  </p>
-                  <p className="text-lg font-semibold text-pink-300">{formatUsd(totalEscrowUsd)}</p>
-                </div>
-              </div>
-
-              <div className="mt-6 grid grid-cols-1 gap-3">
-                {escrowItems.map((item) => (
-                  <div
-                    key={item.id}
-                    className="rounded-2xl border border-white/10 bg-black/30 p-4"
-                  >
-                    <div className="flex items-start justify-between gap-4">
-                      <div>
-                        <p className="text-sm font-semibold text-white">{item.title}</p>
-                        <p className="mt-1 text-xs text-zinc-500">
-                          Buyer: {item.buyer} • Seller: {item.seller}
-                        </p>
-                      </div>
-                      <span
-                        className={`rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${escrowTone(
-                          item.status
-                        )}`}
-                      >
-                        {item.status}
-                      </span>
-                    </div>
-                    <div className="mt-3 flex items-end justify-between">
-                      <div>
-                        <p className="text-[11px] uppercase tracking-[0.2em] text-zinc-500">
-                          Held amount
-                        </p>
-                        <p className="text-xl font-semibold text-pink-300">
-                          {formatUsd(item.amountUsd)}
-                        </p>
-                      </div>
-                      <p className="text-xs font-semibold text-zinc-400">{item.dueIn}</p>
-                    </div>
-                    <div className="mt-3 grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-white transition hover:border-pink-300 hover:text-pink-200"
-                      >
-                        Open Case
-                      </button>
-                      <button
-                        type="button"
-                        className="rounded-2xl border border-pink-300/40 bg-pink-300/10 px-3 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-pink-100 transition hover:bg-pink-300/20"
-                      >
-                        Update
-                      </button>
-                    </div>
                   </div>
-                ))}
-              </div>
-            </section>
 
-            <section className="rounded-3xl border border-white/10 bg-gradient-to-br from-pink-400/15 via-fuchsia-400/10 to-violet-400/15 p-6">
-              <h2 className="text-2xl font-semibold text-white">Policy Anchors</h2>
-              <p className="mt-2 text-sm text-zinc-200">
-                These are the guardrails you can point to in a requirement
-                engineering presentation.
-              </p>
-              <div className="mt-4 grid grid-cols-1 gap-3 text-sm text-zinc-100">
-                {[
-                  "Money is only released after authenticity verification and delivery confirmation.",
-                  "Verification and logistics are intentionally capped at a 7-day SLA.",
-                  "The platform deducts a service fee automatically before seller payout.",
-                  "Admins can suspend fraudulent users and intervene in disputes.",
-                ].map((item) => (
-                  <div
-                    key={item}
-                    className="rounded-2xl border border-white/15 bg-black/30 px-4 py-3"
+                  <button
+                    type="button"
+                    onClick={() => advanceEscrow(item.id)}
+                    className="mt-3 w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-800 transition hover:border-zinc-400"
                   >
-                    {item}
-                  </div>
-                ))}
-              </div>
-            </section>
-          </div>
-        </section>
+                    Advance
+                  </button>
+                </article>
+              ))}
+            </div>
+          </section>
+        )}
       </main>
     </div>
   );

@@ -1,360 +1,225 @@
-import Link from "next/link";
+"use client";
 
-type AuctionItem = {
-  id: string;
-  name: string;
-  seller: string;
-  currentBidUsd: number;
-  minIncrementUsd: number;
-  timeLeft: string;
-  bids: number;
-  yourBidUsd?: number;
-  isLeading?: boolean;
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+import { formatDuration, formatThb } from "@/app/lib/format";
+import {
+  clearSession,
+  ensureCustomerAuctions,
+  getCustomerAuctions,
+  getMockCredentials,
+  getSession,
+  STORAGE_KEYS,
+  type Session,
+} from "@/app/lib/storage";
+import type { CustomerAuction } from "@/app/mock/customer-data";
+
+type AuctionWithTime = CustomerAuction & {
+  hasEnded: boolean;
+  nextBid: number;
+  timeLabel: string;
 };
 
-const auctions: AuctionItem[] = [
-  {
-    id: "skullpanda-warmth",
-    name: "Skullpanda: The Warmth",
-    seller: "collector_amy",
-    currentBidUsd: 142,
-    minIncrementUsd: 5,
-    timeLeft: "02:14:09",
-    bids: 18,
-    yourBidUsd: 135,
-    isLeading: false,
-  },
-  {
-    id: "dimoo-secret",
-    name: "DIMOO Aquarium Secret",
-    seller: "milo_pop",
-    currentBidUsd: 96,
-    minIncrementUsd: 3,
-    timeLeft: "00:48:22",
-    bids: 11,
-    yourBidUsd: 96,
-    isLeading: true,
-  },
-  {
-    id: "labubu-night",
-    name: "LABUBU Forest Night",
-    seller: "serena_box",
-    currentBidUsd: 173,
-    minIncrementUsd: 5,
-    timeLeft: "05:03:51",
-    bids: 24,
-  },
-  {
-    id: "hirono-mime",
-    name: "HIRONO Mime Limited",
-    seller: "toy_quest",
-    currentBidUsd: 128,
-    minIncrementUsd: 4,
-    timeLeft: "12:19:33",
-    bids: 9,
-  },
-];
-
-const notifications = [
-  {
-    title: "Outbid Alert",
-    body: "User X outbid you on Skullpanda: The Warmth with $142.",
-    tone: "border-amber-300/30 bg-amber-300/10 text-amber-100",
-  },
-  {
-    title: "Winning Locked",
-    body: "You are currently leading DIMOO Aquarium Secret at $96.",
-    tone: "border-emerald-300/30 bg-emerald-300/10 text-emerald-100",
-  },
-  {
-    title: "Escrow Reminder",
-    body: "Winning bids are auto-charged and held until verification completes.",
-    tone: "border-pink-300/30 bg-pink-300/10 text-pink-100",
-  },
-] as const;
-
-const walletRules = [
-  "A payment method must be linked before bidding.",
-  "If funds are insufficient at auction close, the system retries payment.",
-  "Repeated failed payments can lead to account suspension.",
-] as const;
-
-function formatUsd(value: number) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  }).format(value);
-}
-
 export default function CustomerPage() {
-  const spotlight = auctions[0];
-  const suggestedBid = spotlight.currentBidUsd + spotlight.minIncrementUsd;
+  const [auctions, setAuctions] = useState<CustomerAuction[]>([]);
+  const [session, setSession] = useState<Session | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    const initialAuctions = ensureCustomerAuctions();
+    const initialSession = getSession();
+
+    const rafId = window.requestAnimationFrame(() => {
+      setAuctions(initialAuctions);
+      setSession(initialSession);
+    });
+
+    return () => window.cancelAnimationFrame(rafId);
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const handleStorage = (event: StorageEvent) => {
+      if (!event.key) return;
+      if (event.key === STORAGE_KEYS.customerAuctions) {
+        const latest = getCustomerAuctions();
+        if (latest.length > 0) {
+          setAuctions(latest);
+        }
+      }
+      if (event.key === STORAGE_KEYS.session) {
+        setSession(getSession());
+      }
+    };
+
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, []);
+
+  const auctionsWithTime: AuctionWithTime[] = useMemo(() => {
+    return auctions.map((auction) => {
+      const msRemaining = auction.endsAtMs - nowMs;
+      const hasEnded = msRemaining <= 0;
+      const nextBid = auction.currentBidThb + auction.minIncrementThb;
+
+      return {
+        ...auction,
+        hasEnded,
+        nextBid,
+        timeLabel: formatDuration(msRemaining),
+      };
+    });
+  }, [auctions, nowMs]);
+
+  const sessionRoute = session ? getMockCredentials(session.role).redirectTo : "/login";
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100">
-      <header className="border-b border-white/10 bg-zinc-950/80 backdrop-blur">
-        <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4">
-          <div className="flex items-center gap-3">
-            <span className="inline-flex h-2.5 w-2.5 rounded-full bg-pink-400" />
-            <p className="text-sm font-semibold uppercase tracking-[0.14em] text-pink-300">
+    <div className="min-h-screen bg-zinc-50 text-zinc-900">
+      <header className="border-b border-zinc-200 bg-white">
+        <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-6 py-5">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
               Customer View
             </p>
+            <h1 className="text-lg font-semibold text-zinc-900">Auctions</h1>
           </div>
-          <nav className="flex items-center gap-3">
+          <nav className="flex items-center gap-2">
             <Link
               href="/"
-              className="rounded-full border border-white/15 px-4 py-2 text-sm font-medium text-white/90 transition hover:border-pink-300 hover:text-pink-200"
+              className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-800 transition hover:border-zinc-400"
             >
               Landing
             </Link>
             <Link
+              href="/login"
+              className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-800 transition hover:border-zinc-400"
+            >
+              Login
+            </Link>
+            <Link
+              href="/seller"
+              className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-800 transition hover:border-zinc-400"
+            >
+              Seller
+            </Link>
+            <Link
               href="/admin"
-              className="rounded-full bg-white/10 px-4 py-2 text-sm font-semibold text-white transition hover:bg-pink-300 hover:text-zinc-950"
+              className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-900 transition hover:border-zinc-400"
             >
               Admin
             </Link>
+            {session ? (
+              <button
+                type="button"
+                onClick={() => {
+                  clearSession();
+                  setSession(null);
+                }}
+                className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800"
+              >
+                Sign out
+              </button>
+            ) : null}
           </nav>
         </div>
       </header>
 
-      <main className="mx-auto flex w-full max-w-6xl flex-col gap-10 px-6 pb-16 pt-12">
-        <section className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-          <div className="max-w-3xl">
-            <p className="text-sm font-medium uppercase tracking-[0.2em] text-pink-300/90">
-              Marketplace Prototype
-            </p>
-            <h1 className="mt-3 text-4xl font-semibold text-white sm:text-5xl">
-              Live bidding with escrow-protected checkout.
-            </h1>
-            <p className="mt-4 max-w-2xl text-base leading-7 text-zinc-300">
-              This page demonstrates the buyer journey: browse auctions, react to
-              outbid alerts, and understand that winning payments are held until
-              authenticity verification is done.
-            </p>
-          </div>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {[
-              { label: "Live", value: auctions.length.toString() },
-              { label: "Leading", value: "1" },
-              { label: "Outbid", value: "1" },
-              { label: "Escrow", value: "On" },
-            ].map((stat) => (
-              <div
-                key={stat.label}
-                className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-center"
-              >
-                <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">
-                  {stat.label}
-                </p>
-                <p className="mt-1 text-xl font-semibold text-white">
-                  {stat.value}
-                </p>
-              </div>
-            ))}
-          </div>
+      <main className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-6 py-10">
+        <section className="flex flex-col gap-2">
+          <h2 className="text-3xl font-semibold text-zinc-900 sm:text-4xl">
+            Select one auction.
+          </h2>
+          <p className="max-w-3xl text-sm leading-6 text-zinc-600">
+            This list shows only surface information. Click any item to see full
+            auction details and place a bid.
+          </p>
         </section>
 
-        <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1.15fr_1fr]">
-          <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-6">
-            <div className="flex items-end justify-between">
-              <div>
-                <h2 className="text-2xl font-semibold text-white">Auctions</h2>
-                <p className="mt-1 text-sm text-zinc-400">
-                  Static mock data representing current bid, time left, and bid
-                  increments.
-                </p>
-              </div>
-              <div className="flex gap-2">
-                {[
-                  { label: "All", active: true },
-                  { label: "Ending Soon" },
-                  { label: "My Bids" },
-                ].map((tab) => (
-                  <button
-                    key={tab.label}
-                    type="button"
-                    className={`rounded-full border px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.18em] transition ${
-                      tab.active
-                        ? "border-pink-300/60 bg-pink-300/15 text-pink-100"
-                        : "border-white/10 bg-black/20 text-zinc-400 hover:border-white/25 hover:text-zinc-200"
-                    }`}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
-              {auctions.map((auction) => {
-                const nextBid = auction.currentBidUsd + auction.minIncrementUsd;
-                const youAreLeading = auction.isLeading;
-
-                return (
-                  <article
-                    key={auction.id}
-                    className="flex h-full flex-col rounded-3xl border border-white/10 bg-black/30 p-4 transition hover:-translate-y-1 hover:border-pink-300/40"
-                  >
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm font-semibold text-white">
-                        {auction.name}
-                      </p>
-                      <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-300">
-                        {auction.timeLeft}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-xs text-zinc-500">
-                      Seller: {auction.seller}
-                    </p>
-
-                    <div className="mt-4 h-28 rounded-2xl border border-white/10 bg-gradient-to-br from-pink-500/25 via-fuchsia-500/15 to-violet-500/25" />
-
-                    <div className="mt-4 flex items-end justify-between">
-                      <div>
-                        <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">
-                          Current
-                        </p>
-                        <p className="text-2xl font-semibold text-pink-300">
-                          {formatUsd(auction.currentBidUsd)}
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-xs text-zinc-500">Next bid</p>
-                        <p className="text-sm font-semibold text-white">
-                          {formatUsd(nextBid)}
-                        </p>
-                      </div>
-                    </div>
-
-                    {auction.yourBidUsd ? (
-                      <div
-                        className={`mt-4 rounded-2xl border px-3 py-2 text-xs font-medium ${
-                          youAreLeading
-                            ? "border-emerald-300/40 bg-emerald-300/10 text-emerald-100"
-                            : "border-amber-300/40 bg-amber-300/10 text-amber-100"
-                        }`}
-                      >
-                        {youAreLeading
-                          ? `You are leading at ${formatUsd(auction.yourBidUsd)}.`
-                          : `You bid ${formatUsd(auction.yourBidUsd)}. Currently outbid.`}
-                      </div>
-                    ) : null}
-
-                    <button
-                      type="button"
-                      className="mt-4 inline-flex items-center justify-center rounded-xl bg-pink-400 px-4 py-2.5 text-sm font-semibold text-zinc-950 transition hover:bg-pink-300"
-                    >
-                      Bid {formatUsd(nextBid)}
-                    </button>
-                  </article>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-6">
-            <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-6">
-              <h2 className="text-xl font-semibold text-white">Bidding Panel</h2>
-              <p className="mt-1 text-sm text-zinc-400">
-                Focused view of a single auction with rules that map to your
-                requirement doc.
+        {session ? (
+          <section className="flex flex-col gap-3 rounded-2xl border border-violet-200 bg-violet-50 px-5 py-4 text-sm text-violet-900 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="font-semibold">Signed in as {session.name}</p>
+              <p className="text-xs uppercase tracking-[0.2em] text-violet-700">
+                {session.role}
               </p>
+            </div>
+            <Link
+              href={sessionRoute}
+              className="rounded-lg border border-violet-200 bg-white px-4 py-2 text-sm font-semibold text-violet-700 transition hover:border-violet-300"
+            >
+              Open your dashboard
+            </Link>
+          </section>
+        ) : (
+          <section className="flex flex-col gap-2 rounded-2xl border border-zinc-200 bg-white px-5 py-4 text-sm text-zinc-700 sm:flex-row sm:items-center sm:justify-between">
+            <p className="font-semibold">You are not signed in.</p>
+            <Link
+              href="/login"
+              className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800"
+            >
+              Go to login
+            </Link>
+          </section>
+        )}
 
-              <div className="mt-5 rounded-2xl border border-white/10 bg-black/30 p-4">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <p className="text-sm font-semibold text-white">
-                      {spotlight.name}
+        <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          {auctionsWithTime.map((auction) => (
+            <Link
+              key={auction.id}
+              href={`/customer/${auction.id}`}
+              className="group flex h-full flex-col rounded-3xl border border-zinc-200 bg-white p-5 transition hover:-translate-y-0.5 hover:border-zinc-300"
+            >
+              <div className="rounded-2xl border border-zinc-200 bg-gradient-to-br from-zinc-100 to-zinc-200 p-6">
+                <div className="flex h-32 items-center justify-center rounded-xl border border-dashed border-zinc-300 bg-white text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                  {auction.series}
+                </div>
+              </div>
+
+              <div className="mt-4 flex flex-1 flex-col gap-3">
+                <div>
+                  <h3 className="text-lg font-semibold text-zinc-900">{auction.title}</h3>
+                  <p className="mt-1 text-xs uppercase tracking-[0.2em] text-zinc-500">
+                    Seller • {auction.seller}
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+                    <p className="text-[11px] uppercase tracking-[0.2em] text-zinc-500">
+                      Current
                     </p>
-                    <p className="text-xs text-zinc-500">Seller: {spotlight.seller}</p>
+                    <p className="mt-1 text-xl font-semibold text-zinc-900">
+                      {formatThb(auction.currentBidThb)}
+                    </p>
                   </div>
-                  <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-zinc-300">
-                    {spotlight.timeLeft}
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+                    <p className="text-[11px] uppercase tracking-[0.2em] text-zinc-500">
+                      Time left
+                    </p>
+                    <p className={`mt-1 text-xl font-semibold ${auction.hasEnded ? "text-zinc-400" : "text-zinc-900"}`}>
+                      {auction.timeLabel}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between pt-1">
+                  <p className="text-sm font-semibold text-zinc-900">
+                    Next bid {formatThb(auction.nextBid)}
+                  </p>
+                  <span className="text-xs font-semibold uppercase tracking-[0.2em] text-violet-600 transition group-hover:translate-x-0.5">
+                    View details
                   </span>
                 </div>
-
-                <div className="mt-4 grid grid-cols-2 gap-3">
-                  <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
-                    <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">
-                      Current bid
-                    </p>
-                    <p className="mt-1 text-2xl font-semibold text-pink-300">
-                      {formatUsd(spotlight.currentBidUsd)}
-                    </p>
-                  </div>
-                  <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
-                    <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">
-                      Min increment
-                    </p>
-                    <p className="mt-1 text-2xl font-semibold text-white">
-                      {formatUsd(spotlight.minIncrementUsd)}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="mt-4 rounded-2xl border border-pink-300/30 bg-pink-300/10 p-3 text-sm text-pink-100">
-                  Suggested next bid: <span className="font-semibold">{formatUsd(suggestedBid)}</span>
-                </div>
-
-                <div className="mt-4 grid grid-cols-2 gap-3">
-                  {[suggestedBid, suggestedBid + 5, suggestedBid + 10, suggestedBid + 20].map(
-                    (amount) => (
-                      <button
-                        key={amount}
-                        type="button"
-                        className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-sm font-semibold text-white transition hover:border-pink-300 hover:text-pink-200"
-                      >
-                        {formatUsd(amount)}
-                      </button>
-                    )
-                  )}
-                </div>
-
-                <button
-                  type="button"
-                  className="mt-4 w-full rounded-2xl bg-pink-400 px-4 py-3 text-sm font-semibold text-zinc-950 transition hover:bg-pink-300"
-                >
-                  Confirm Bid
-                </button>
               </div>
-            </section>
-
-            <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-6">
-              <h2 className="text-xl font-semibold text-white">Notifications</h2>
-              <p className="mt-1 text-sm text-zinc-400">
-                Outbid and auction-end alerts are core to the experience.
-              </p>
-              <div className="mt-4 grid grid-cols-1 gap-3">
-                {notifications.map((note) => (
-                  <div
-                    key={note.title}
-                    className={`rounded-2xl border px-4 py-3 text-sm ${note.tone}`}
-                  >
-                    <p className="font-semibold">{note.title}</p>
-                    <p className="mt-1 text-xs text-white/80">{note.body}</p>
-                  </div>
-                ))}
-              </div>
-            </section>
-
-            <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-6">
-              <h2 className="text-xl font-semibold text-white">Wallet Rules</h2>
-              <p className="mt-1 text-sm text-zinc-400">
-                Prototype copy that communicates the payment and ban policy.
-              </p>
-              <div className="mt-4 grid grid-cols-1 gap-3">
-                {walletRules.map((rule) => (
-                  <div
-                    key={rule}
-                    className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-zinc-300"
-                  >
-                    {rule}
-                  </div>
-                ))}
-              </div>
-            </section>
-          </div>
+            </Link>
+          ))}
         </section>
       </main>
     </div>
