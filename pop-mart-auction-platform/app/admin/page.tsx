@@ -125,6 +125,8 @@ export default function AdminPage() {
   const [session, setSession] = useState<Session | null>(null);
   const [queueFilter, setQueueFilter] = useState<"all" | "seller" | "platform">("all");
   const [activeTab, setActiveTab] = useState<AdminTab>("screening");
+  const [selectedQueueId, setSelectedQueueId] = useState<string | null>(null);
+  const [selectedEscrowId, setSelectedEscrowId] = useState<string | null>(null);
 
   useEffect(() => {
     const initialScreening = ensureAdminScreening();
@@ -134,6 +136,11 @@ export default function AdminPage() {
     const initialLog = getAdminLog();
     const initialSession = getSession();
 
+    const initialQueue = [
+      ...initialPending.map(toQueueItemFromPending),
+      ...initialScreening.map(toQueueItemFromAdmin),
+    ];
+
     const rafId = window.requestAnimationFrame(() => {
       setScreening(initialScreening);
       setEscrow(initialEscrow);
@@ -142,6 +149,8 @@ export default function AdminPage() {
       setAdminLog(initialLog);
       setNowMs(Date.now());
       setSession(initialSession);
+      setSelectedQueueId(initialQueue[0]?.id ?? null);
+      setSelectedEscrowId(initialEscrow[0]?.id ?? null);
     });
 
     const timer = window.setInterval(() => {
@@ -203,6 +212,39 @@ export default function AdminPage() {
   );
 
   const sessionRoute = session ? getMockCredentials(session.role).redirectTo : "/login";
+
+  const selectedQueueItem =
+    filteredQueue.find((item) => item.id === selectedQueueId) ?? filteredQueue[0] ?? null;
+  const selectedEscrowItem =
+    escrow.find((item) => item.id === selectedEscrowId) ?? escrow[0] ?? null;
+
+  useEffect(() => {
+    if (filteredQueue.length === 0) {
+      if (selectedQueueId === null) return;
+      const rafId = window.requestAnimationFrame(() => setSelectedQueueId(null));
+      return () => window.cancelAnimationFrame(rafId);
+    }
+    if (selectedQueueId && filteredQueue.some((item) => item.id === selectedQueueId)) {
+      return;
+    }
+    const nextId = filteredQueue[0].id;
+    const rafId = window.requestAnimationFrame(() => setSelectedQueueId(nextId));
+    return () => window.cancelAnimationFrame(rafId);
+  }, [filteredQueue, selectedQueueId]);
+
+  useEffect(() => {
+    if (escrow.length === 0) {
+      if (selectedEscrowId === null) return;
+      const rafId = window.requestAnimationFrame(() => setSelectedEscrowId(null));
+      return () => window.cancelAnimationFrame(rafId);
+    }
+    if (selectedEscrowId && escrow.some((item) => item.id === selectedEscrowId)) {
+      return;
+    }
+    const nextId = escrow[0].id;
+    const rafId = window.requestAnimationFrame(() => setSelectedEscrowId(nextId));
+    return () => window.cancelAnimationFrame(rafId);
+  }, [escrow, selectedEscrowId]);
 
   function approveItem(item: QueueItem) {
     if (nowMs === 0) {
@@ -269,6 +311,10 @@ export default function AdminPage() {
     }
   }
 
+  const selectedEscrowIndex = selectedEscrowItem
+    ? ESCROW_FLOW.indexOf(selectedEscrowItem.status)
+    : -1;
+
   return (
     <div className="min-h-screen bg-zinc-50 text-zinc-900">
       <header className="border-b border-zinc-200 bg-white">
@@ -323,39 +369,29 @@ export default function AdminPage() {
       <main className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-6 py-10">
         <section className="flex flex-col gap-2">
           <h2 className="text-3xl font-semibold text-zinc-900 sm:text-4xl">
-            Keep it simple: screen, then process payment.
+            Screen, then process payment.
           </h2>
           <p className="max-w-3xl text-sm leading-6 text-zinc-600">
-            This admin view is intentionally minimal for demos.
+            The list stays lean. Details appear when you select a card.
           </p>
         </section>
 
         {session ? (
-          <section className="flex flex-col gap-3 rounded-2xl border border-violet-200 bg-violet-50 px-5 py-4 text-sm text-violet-900 sm:flex-row sm:items-center sm:justify-between">
+          <section className="flex flex-col gap-3 rounded-2xl border border-zinc-200 bg-white px-5 py-4 text-sm text-zinc-800 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="font-semibold">Signed in as {session.name}</p>
-              <p className="text-xs uppercase tracking-[0.2em] text-violet-700">
+              <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">
                 {session.role}
               </p>
             </div>
             <Link
               href={sessionRoute}
-              className="rounded-lg border border-violet-200 bg-white px-4 py-2 text-sm font-semibold text-violet-700 transition hover:border-violet-300"
+              className="rounded-lg border border-zinc-300 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-800 transition hover:border-zinc-400"
             >
-              Open your dashboard
+              Dashboard
             </Link>
           </section>
-        ) : (
-          <section className="flex flex-col gap-2 rounded-2xl border border-zinc-200 bg-white px-5 py-4 text-sm text-zinc-700 sm:flex-row sm:items-center sm:justify-between">
-            <p className="font-semibold">You are not signed in.</p>
-            <Link
-              href="/login"
-              className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800"
-            >
-              Go to login
-            </Link>
-          </section>
-        )}
+        ) : null}
 
         <section className="flex flex-wrap gap-2">
           {[
@@ -383,7 +419,7 @@ export default function AdminPage() {
               <div>
                 <h3 className="text-lg font-semibold text-zinc-900">Screening queue</h3>
                 <p className="mt-1 text-sm text-zinc-600">
-                  Approve items to keep the buyer view focused.
+                  Select a listing to review its details.
                 </p>
               </div>
               <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-600">
@@ -413,80 +449,125 @@ export default function AdminPage() {
             </div>
 
             {filteredQueue.length === 0 ? (
-              <p className="mt-4 text-sm text-zinc-600">No items to review.</p>
+              <p className="mt-6 text-sm text-zinc-600">No items to review.</p>
             ) : (
-              <div className="mt-4 flex flex-col gap-3">
-                {filteredQueue.map((item) => {
-                  const sourceLabel = item.source === "pending" ? "seller" : "platform";
+              <div className="mt-6 grid grid-cols-1 gap-5 lg:grid-cols-[0.95fr_1.05fr]">
+                <div className="flex flex-col gap-3">
+                  {filteredQueue.map((item) => {
+                    const isSelected = item.id === selectedQueueItem?.id;
 
-                  return (
-                    <article
-                      key={`${item.source}-${item.id}`}
-                      className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4"
-                    >
-                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                        <div>
-                          <p className="text-base font-semibold text-zinc-900">{item.title}</p>
-                          <p className="mt-1 text-xs uppercase tracking-[0.2em] text-zinc-500">
-                            {item.series} • {item.seller}
-                          </p>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="rounded-lg border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-700">
-                            {sourceLabel}
-                          </span>
+                    return (
+                      <button
+                        key={`${item.source}-${item.id}`}
+                        type="button"
+                        onClick={() => setSelectedQueueId(item.id)}
+                        className={`rounded-2xl border p-4 text-left transition ${
+                          isSelected
+                            ? "border-zinc-900 bg-zinc-900 text-white"
+                            : "border-zinc-200 bg-zinc-50 text-zinc-900 hover:border-zinc-300"
+                        }`}
+                      >
+                        <p className="text-base font-semibold">{item.title}</p>
+                        <p
+                          className={`mt-1 text-xs uppercase tracking-[0.2em] ${
+                            isSelected ? "text-white/70" : "text-zinc-500"
+                          }`}
+                        >
+                          {item.series} • {item.seller}
+                        </p>
+                        <div className="mt-3 flex items-center justify-between">
+                          <div>
+                            <p
+                              className={`text-[11px] uppercase tracking-[0.2em] ${
+                                isSelected ? "text-white/70" : "text-zinc-500"
+                              }`}
+                            >
+                              Start
+                            </p>
+                            <p className="mt-1 text-lg font-semibold">
+                              {formatThb(item.startingPriceThb)}
+                            </p>
+                          </div>
                           <span
-                            className={`rounded-lg border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${riskTone(
-                              item.risk
-                            )}`}
+                            className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${
+                              isSelected
+                                ? "border-white/30 bg-white/10 text-white"
+                                : riskTone(item.risk)
+                            }`}
                           >
                             {item.risk}
                           </span>
-                          <span className="rounded-lg border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-700">
-                            {item.submittedLabel}
-                          </span>
                         </div>
-                      </div>
+                      </button>
+                    );
+                  })}
+                </div>
 
-                      <div className="mt-3 grid grid-cols-2 gap-2">
-                        <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2">
-                          <p className="text-[11px] uppercase tracking-[0.2em] text-zinc-500">
-                            Start
-                          </p>
-                          <p className="mt-1 text-sm font-semibold text-zinc-900">
-                            {formatThb(item.startingPriceThb)}
-                          </p>
-                        </div>
-                        <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2">
-                          <p className="text-[11px] uppercase tracking-[0.2em] text-zinc-500">
-                            Duration
-                          </p>
-                          <p className="mt-1 text-sm font-semibold text-zinc-900">
-                            {item.durationHours}h
-                          </p>
-                        </div>
+                {selectedQueueItem ? (
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-5">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <p className="text-lg font-semibold text-zinc-900">{selectedQueueItem.title}</p>
+                        <p className="mt-1 text-xs uppercase tracking-[0.2em] text-zinc-500">
+                          {selectedQueueItem.series} • {selectedQueueItem.seller}
+                        </p>
                       </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-700">
+                          {selectedQueueItem.source === "pending" ? "seller" : "platform"}
+                        </span>
+                        <span
+                          className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${riskTone(
+                            selectedQueueItem.risk
+                          )}`}
+                        >
+                          {selectedQueueItem.risk}
+                        </span>
+                      </div>
+                    </div>
 
-                      <div className="mt-3 grid grid-cols-2 gap-2">
-                        <button
-                          type="button"
-                          onClick={() => approveItem(item)}
-                          disabled={nowMs === 0}
-                          className="rounded-xl bg-zinc-900 px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
-                        >
-                          Approve
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => rejectItem(item)}
-                          className="rounded-xl border border-zinc-300 px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-800 transition hover:border-zinc-400"
-                        >
-                          Reject
-                        </button>
+                    <div className="mt-4 grid grid-cols-2 gap-3">
+                      <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                        <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Start price</p>
+                        <p className="mt-1 text-xl font-semibold text-zinc-900">
+                          {formatThb(selectedQueueItem.startingPriceThb)}
+                        </p>
                       </div>
-                    </article>
-                  );
-                })}
+                      <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                        <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Duration</p>
+                        <p className="mt-1 text-xl font-semibold text-zinc-900">
+                          {selectedQueueItem.durationHours}h
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-xs uppercase tracking-[0.2em] text-zinc-500">
+                      Submitted {selectedQueueItem.submittedLabel}
+                    </div>
+
+                    <div className="mt-5 grid grid-cols-2 gap-3">
+                      <button
+                        type="button"
+                        onClick={() => approveItem(selectedQueueItem)}
+                        disabled={nowMs === 0}
+                        className="rounded-2xl bg-zinc-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
+                      >
+                        Approve listing
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => rejectItem(selectedQueueItem)}
+                        className="rounded-2xl border border-zinc-300 px-4 py-3 text-sm font-semibold text-zinc-900 transition hover:border-zinc-400"
+                      >
+                        Reject listing
+                      </button>
+                    </div>
+
+                    <p className="mt-3 text-xs text-zinc-600">
+                      Approval publishes the auction and keeps the buyer view capped at two items.
+                    </p>
+                  </div>
+                ) : null}
               </div>
             )}
           </section>
@@ -496,7 +577,7 @@ export default function AdminPage() {
               <div>
                 <h3 className="text-lg font-semibold text-zinc-900">Payment processing</h3>
                 <p className="mt-1 text-sm text-zinc-600">
-                  Advance escrow cases to simulate payout readiness.
+                  Select a case to view its payout readiness.
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -509,52 +590,111 @@ export default function AdminPage() {
               </div>
             </div>
 
-            <div className="mt-4 flex flex-col gap-3">
-              {escrow.map((item) => (
-                <article
-                  key={item.id}
-                  className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4"
-                >
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                      <p className="text-base font-semibold text-zinc-900">{item.title}</p>
-                      <p className="mt-1 text-xs uppercase tracking-[0.2em] text-zinc-500">
-                        {item.buyer} • {item.seller}
+            {escrow.length === 0 ? (
+              <p className="mt-6 text-sm text-zinc-600">No payment cases yet.</p>
+            ) : (
+              <div className="mt-6 grid grid-cols-1 gap-5 lg:grid-cols-[0.95fr_1.05fr]">
+                <div className="flex flex-col gap-3">
+                  {escrow.map((item) => {
+                    const isSelected = item.id === selectedEscrowItem?.id;
+
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => setSelectedEscrowId(item.id)}
+                        className={`rounded-2xl border p-4 text-left transition ${
+                          isSelected
+                            ? "border-zinc-900 bg-zinc-900 text-white"
+                            : "border-zinc-200 bg-zinc-50 text-zinc-900 hover:border-zinc-300"
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-base font-semibold">{item.title}</p>
+                            <p
+                              className={`mt-1 text-xs uppercase tracking-[0.2em] ${
+                                isSelected ? "text-white/70" : "text-zinc-500"
+                              }`}
+                            >
+                              {item.buyer} • {item.seller}
+                            </p>
+                          </div>
+                          <span
+                            className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${
+                              isSelected
+                                ? "border-white/30 bg-white/10 text-white"
+                                : escrowTone(item.status)
+                            }`}
+                          >
+                            {item.status}
+                          </span>
+                        </div>
+                        <p className="mt-4 text-2xl font-semibold">{formatThb(item.amountThb)}</p>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {selectedEscrowItem ? (
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-5">
+                    <div className="flex flex-col gap-2">
+                      <p className="text-lg font-semibold text-zinc-900">{selectedEscrowItem.title}</p>
+                      <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">
+                        Buyer {selectedEscrowItem.buyer} • Seller {selectedEscrowItem.seller}
                       </p>
                     </div>
-                    <span
-                      className={`rounded-lg border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${escrowTone(
-                        item.status
-                      )}`}
+
+                    <div className="mt-4 grid grid-cols-2 gap-3">
+                      <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                        <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Held amount</p>
+                        <p className="mt-1 text-xl font-semibold text-zinc-900">
+                          {formatThb(selectedEscrowItem.amountThb)}
+                        </p>
+                      </div>
+                      <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                        <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Status</p>
+                        <p className="mt-1 text-xl font-semibold text-zinc-900">
+                          {selectedEscrowItem.status}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 flex flex-col gap-2">
+                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                        Progress
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {ESCROW_FLOW.map((step, index) => (
+                          <span
+                            key={step}
+                            className={`rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${
+                              index <= selectedEscrowIndex
+                                ? "border-zinc-900 bg-zinc-900 text-white"
+                                : "border-zinc-300 bg-white text-zinc-600"
+                            }`}
+                          >
+                            {step}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="mt-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-700">
+                      {selectedEscrowItem.note}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => advanceEscrow(selectedEscrowItem.id)}
+                      className="mt-5 w-full rounded-2xl bg-zinc-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-zinc-800"
                     >
-                      {item.status}
-                    </span>
+                      Advance case
+                    </button>
                   </div>
-
-                  <div className="mt-3 flex items-end justify-between">
-                    <div>
-                      <p className="text-[11px] uppercase tracking-[0.2em] text-zinc-500">
-                        Held
-                      </p>
-                      <p className="mt-1 text-lg font-semibold text-zinc-900">
-                        {formatThb(item.amountThb)}
-                      </p>
-                    </div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
-                      {item.note}
-                    </p>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => advanceEscrow(item.id)}
-                    className="mt-3 w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-800 transition hover:border-zinc-400"
-                  >
-                    Advance
-                  </button>
-                </article>
-              ))}
-            </div>
+                ) : null}
+              </div>
+            )}
           </section>
         )}
       </main>
