@@ -214,4 +214,27 @@ export function clearSession() {
   window.localStorage.removeItem(KEYS.session);
 }
 
+export type ResetOptions = {
+  keepSession?: boolean;
+};
+
+export function resetPrototypeData(options: ResetOptions = {}) {
+  if (!hasWindow()) {
+    return;
+  }
+
+  const { keepSession = true } = options;
+
+  writeJson(KEYS.customerAuctions, createDefaultCustomerAuctions());
+  writeJson(KEYS.pendingListings, []);
+  writeJson(KEYS.bids, []);
+  writeJson(KEYS.adminScreening, DEFAULT_ADMIN_SCREENING);
+  writeJson(KEYS.adminEscrow, DEFAULT_ADMIN_ESCROW);
+  writeJson(KEYS.adminLog, []);
+
+  if (!keepSession) {
+    window.localStorage.removeItem(KEYS.session);
+  }
+}
+
 export const STORAGE_KEYS = KEYS;

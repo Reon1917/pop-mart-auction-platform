@@ -9,6 +9,7 @@ import {
   getCustomerAuctions,
   getMockCredentials,
   getSession,
+  resetPrototypeData,
   STORAGE_KEYS,
   type Session,
 } from "@/app/lib/storage";
@@ -24,6 +25,19 @@ export default function CustomerPage() {
   const [auctions, setAuctions] = useState<CustomerAuction[]>([]);
   const [session, setSession] = useState<Session | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
+
+  const handleReset = () => {
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm("Reset demo data and timers? This clears bids, listings, and logs.")
+    ) {
+      return;
+    }
+    resetPrototypeData();
+    setAuctions(getCustomerAuctions());
+    setSession(getSession());
+    setNowMs(Date.now());
+  };
 
   useEffect(() => {
     const initialAuctions = ensureCustomerAuctions();
@@ -79,6 +93,7 @@ export default function CustomerPage() {
   }, [auctions, nowMs]);
 
   const sessionRoute = session ? getMockCredentials(session.role).redirectTo : "/login";
+  const showSellerAdminLinks = session?.role !== "buyer";
 
   return (
     <div className="min-h-screen bg-zinc-50 text-zinc-900">
@@ -91,6 +106,13 @@ export default function CustomerPage() {
             <h1 className="text-lg font-semibold text-zinc-900">Auctions</h1>
           </div>
           <nav className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleReset}
+              className="rounded-lg border border-rose-200 px-4 py-2 text-sm font-semibold text-rose-700 transition hover:border-rose-300 hover:bg-rose-50"
+            >
+              Reset demo
+            </button>
             <Link
               href="/"
               className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-800 transition hover:border-zinc-400"
@@ -103,18 +125,22 @@ export default function CustomerPage() {
             >
               Login
             </Link>
-            <Link
-              href="/seller"
-              className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-800 transition hover:border-zinc-400"
-            >
-              Seller
-            </Link>
-            <Link
-              href="/admin"
-              className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-900 transition hover:border-zinc-400"
-            >
-              Admin
-            </Link>
+            {showSellerAdminLinks ? (
+              <>
+                <Link
+                  href="/seller"
+                  className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-800 transition hover:border-zinc-400"
+                >
+                  Seller
+                </Link>
+                <Link
+                  href="/admin"
+                  className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-900 transition hover:border-zinc-400"
+                >
+                  Admin
+                </Link>
+              </>
+            ) : null}
             {session ? (
               <button
                 type="button"

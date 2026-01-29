@@ -10,6 +10,7 @@ import {
   getMockCredentials,
   getPendingListings,
   getSession,
+  resetPrototypeData,
   type Session,
 } from "@/app/lib/storage";
 
@@ -69,6 +70,17 @@ export default function HomePage() {
     setSession(getSession());
   };
 
+  const handleReset = () => {
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm("Reset demo data and timers? This clears bids, listings, and logs.")
+    ) {
+      return;
+    }
+    resetPrototypeData();
+    refreshAll();
+  };
+
   useEffect(() => {
     const rafId = window.requestAnimationFrame(refreshAll);
 
@@ -104,6 +116,13 @@ export default function HomePage() {
             </div>
           </Link>
           <nav className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleReset}
+              className="rounded-lg border border-rose-200 px-4 py-2 text-sm font-semibold text-rose-700 transition hover:border-rose-300 hover:bg-rose-50"
+            >
+              Reset demo
+            </button>
             <Link
               href="/login"
               className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-800 transition hover:border-zinc-400"

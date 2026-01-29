@@ -98,6 +98,7 @@ export default function LoginPage() {
     text: "Use Quick Login to auto-fill demo credentials.",
   });
   const [activeSessionLabel, setActiveSessionLabel] = useState<string | null>(null);
+  const [sessionRole, setSessionRole] = useState<UserRole | null>(null);
   const [mounted, setMounted] = useState(false);
 
   const credentialList = useMemo(() => listMockCredentials(), []);
@@ -109,6 +110,9 @@ export default function LoginPage() {
       setMounted(true);
       if (label) {
         setActiveSessionLabel(label);
+      }
+      if (session?.role) {
+        setSessionRole(session.role);
       }
     });
     return () => window.cancelAnimationFrame(rafId);
@@ -184,12 +188,14 @@ export default function LoginPage() {
             >
               Customer
             </Link>
-            <Link
-              href="/admin"
-              className="rounded-lg px-3 py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 transition"
-            >
-              Admin
-            </Link>
+            {sessionRole !== "buyer" ? (
+              <Link
+                href="/admin"
+                className="rounded-lg px-3 py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 transition"
+              >
+                Admin
+              </Link>
+            ) : null}
           </nav>
         </div>
       </header>
@@ -238,6 +244,7 @@ export default function LoginPage() {
               onClick={() => {
                 clearSession();
                 setActiveSessionLabel(null);
+                setSessionRole(null);
                 setMessage({ tone: "neutral", text: "Session cleared." });
               }}
               leftIcon={<Icons.SignOut />}

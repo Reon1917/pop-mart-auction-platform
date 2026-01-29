@@ -12,6 +12,7 @@ import {
   getCustomerAuctions,
   getMockCredentials,
   getSession,
+  resetPrototypeData,
   setCustomerAuctions,
   STORAGE_KEYS,
   type BidRecord,
@@ -54,6 +55,24 @@ export default function AuctionDetailPage() {
     tone: "neutral",
     message: "Minimum bid validation is enforced locally.",
   });
+
+  const handleReset = () => {
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm("Reset demo data and timers? This clears bids, listings, and logs.")
+    ) {
+      return;
+    }
+    resetPrototypeData();
+    setAuctions(getCustomerAuctions());
+    setBids(getBidRecords());
+    setSession(getSession());
+    setNowMs(Date.now());
+    setActionState({
+      tone: "neutral",
+      message: "Minimum bid validation is enforced locally.",
+    });
+  };
 
   useEffect(() => {
     const initialAuctions = ensureCustomerAuctions();
@@ -223,6 +242,13 @@ export default function AuctionDetailPage() {
             <h1 className="text-lg font-semibold text-zinc-900">Auction detail</h1>
           </div>
           <nav className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleReset}
+              className="rounded-lg border border-rose-200 px-4 py-2 text-sm font-semibold text-rose-700 transition hover:border-rose-300 hover:bg-rose-50"
+            >
+              Reset demo
+            </button>
             <Link
               href="/customer"
               className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-800 transition hover:border-zinc-400"

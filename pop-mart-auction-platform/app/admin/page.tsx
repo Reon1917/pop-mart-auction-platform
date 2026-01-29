@@ -16,6 +16,7 @@ import {
   getMockCredentials,
   getPendingListings,
   getSession,
+  resetPrototypeData,
   setAdminEscrow,
   setAdminScreening,
   setCustomerAuctions,
@@ -128,6 +129,36 @@ export default function AdminPage() {
   const [selectedQueueId, setSelectedQueueId] = useState<string | null>(null);
   const [selectedEscrowId, setSelectedEscrowId] = useState<string | null>(null);
 
+  const handleReset = () => {
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm("Reset demo data and timers? This clears bids, listings, and logs.")
+    ) {
+      return;
+    }
+    resetPrototypeData();
+    const nextScreening = ensureAdminScreening();
+    const nextEscrow = ensureAdminEscrow();
+    const nextAuctions = ensureCustomerAuctions();
+    const nextPending = getPendingListings();
+    const nextLog = getAdminLog();
+    const nextSession = getSession();
+    const nextQueue = [
+      ...nextPending.map(toQueueItemFromPending),
+      ...nextScreening.map(toQueueItemFromAdmin),
+    ];
+
+    setScreening(nextScreening);
+    setEscrow(nextEscrow);
+    setAuctions(nextAuctions);
+    setPending(nextPending);
+    setAdminLog(nextLog);
+    setNowMs(Date.now());
+    setSession(nextSession);
+    setSelectedQueueId(nextQueue[0]?.id ?? null);
+    setSelectedEscrowId(nextEscrow[0]?.id ?? null);
+  };
+
   useEffect(() => {
     const initialScreening = ensureAdminScreening();
     const initialEscrow = ensureAdminEscrow();
@@ -217,6 +248,7 @@ export default function AdminPage() {
     filteredQueue.find((item) => item.id === selectedQueueId) ?? filteredQueue[0] ?? null;
   const selectedEscrowItem =
     escrow.find((item) => item.id === selectedEscrowId) ?? escrow[0] ?? null;
+  const showSellerAdminLinks = session?.role !== "buyer";
 
   useEffect(() => {
     if (filteredQueue.length === 0) {
@@ -326,6 +358,13 @@ export default function AdminPage() {
             <h1 className="text-lg font-semibold text-zinc-900">Operations</h1>
           </div>
           <nav className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleReset}
+              className="rounded-lg border border-rose-200 px-4 py-2 text-sm font-semibold text-rose-700 transition hover:border-rose-300 hover:bg-rose-50"
+            >
+              Reset demo
+            </button>
             <Link
               href="/"
               className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-800 transition hover:border-zinc-400"
@@ -344,12 +383,14 @@ export default function AdminPage() {
             >
               Customer
             </Link>
-            <Link
-              href="/seller"
-              className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-900 transition hover:border-zinc-400"
-            >
-              Seller
-            </Link>
+            {showSellerAdminLinks ? (
+              <Link
+                href="/seller"
+                className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-900 transition hover:border-zinc-400"
+              >
+                Seller
+              </Link>
+            ) : null}
             {session ? (
               <button
                 type="button"
