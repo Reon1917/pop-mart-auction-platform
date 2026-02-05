@@ -59,7 +59,7 @@ export function Badge({
 }: BadgeProps) {
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full border font-semibold uppercase tracking-wider ${variantStyles[variant]} ${sizeStyles[size]} ${className}`}
+      className={`inline-flex items-center gap-1.5 rounded-md border font-semibold uppercase tracking-wider ${variantStyles[variant]} ${sizeStyles[size]} ${className}`}
     >
       {dot && (
         <span

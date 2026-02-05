@@ -43,17 +43,17 @@ type QueueItem = {
 };
 
 const ESCROW_FLOW: AdminEscrowItem["status"][] = [
-  "awaiting pickup",
-  "verifying",
-  "ready to ship",
-  "delivered",
+  "payment secured",
+  "picked up from seller",
+  "authenticity check",
+  "delivered to buyer",
 ];
 
 const ESCROW_NOTE: Record<AdminEscrowItem["status"], string> = {
-  "awaiting pickup": "Pickup window in 6h",
-  verifying: "Verification in progress",
-  "ready to ship": "Ready to ship to buyer",
-  delivered: "Delivered — ready for payout",
+  "payment secured": "Buyer payment confirmed and secured.",
+  "picked up from seller": "Courier confirmed pickup from seller.",
+  "authenticity check": "Final authenticity check in progress.",
+  "delivered to buyer": "Delivered to buyer — ready for payout.",
 };
 
 function makeAuctionFromQueueItem(item: QueueItem, nowMs: number): CustomerAuction {
@@ -82,10 +82,10 @@ function riskTone(risk: QueueItem["risk"]) {
 }
 
 function escrowTone(status: AdminEscrowItem["status"]) {
-  if (status === "verifying") return "border-sky-300 bg-sky-50 text-sky-800";
-  if (status === "ready to ship") return "border-emerald-300 bg-emerald-50 text-emerald-800";
-  if (status === "delivered") return "border-zinc-400 bg-zinc-100 text-zinc-800";
-  return "border-zinc-300 bg-zinc-50 text-zinc-700";
+  if (status === "authenticity check") return "border-sky-300 bg-sky-50 text-sky-800";
+  if (status === "picked up from seller") return "border-amber-300 bg-amber-50 text-amber-800";
+  if (status === "delivered to buyer") return "border-zinc-400 bg-zinc-100 text-zinc-800";
+  return "border-emerald-300 bg-emerald-50 text-emerald-800";
 }
 
 function toQueueItemFromAdmin(item: AdminScreeningItem): QueueItem {
@@ -93,7 +93,7 @@ function toQueueItemFromAdmin(item: AdminScreeningItem): QueueItem {
     source: "admin",
     id: item.id,
     title: item.title,
-    series: "Screened",
+    series: "Reviewed",
     seller: item.seller,
     startingPriceThb: item.startingPriceThb,
     durationHours: item.durationHours,
@@ -248,7 +248,6 @@ export default function AdminPage() {
     filteredQueue.find((item) => item.id === selectedQueueId) ?? filteredQueue[0] ?? null;
   const selectedEscrowItem =
     escrow.find((item) => item.id === selectedEscrowId) ?? escrow[0] ?? null;
-  const showSellerAdminLinks = session?.role !== "buyer";
 
   useEffect(() => {
     if (filteredQueue.length === 0) {
@@ -338,7 +337,7 @@ export default function AdminPage() {
     setEscrow(nextEscrow);
     const target = nextEscrow.find((item) => item.id === id);
     if (target) {
-      const nextLog = appendAdminLog(`Escrow updated: ${target.title} → ${target.status}`);
+      const nextLog = appendAdminLog(`Fulfillment updated: ${target.title} → ${target.status}`);
       setAdminLog(nextLog);
     }
   }
@@ -361,34 +360,22 @@ export default function AdminPage() {
             <button
               type="button"
               onClick={handleReset}
-              className="rounded-lg border border-rose-200 px-4 py-2 text-sm font-semibold text-rose-700 transition hover:border-rose-300 hover:bg-rose-50"
+              className="rounded-md border border-rose-200 px-4 py-2 text-sm font-semibold text-rose-700 transition hover:border-rose-300 hover:bg-rose-50"
             >
               Reset demo
             </button>
             <Link
               href="/"
-              className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-800 transition hover:border-zinc-400"
+              className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-800 transition hover:border-zinc-400"
             >
               Landing
             </Link>
-            <Link
-              href="/login"
-              className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-800 transition hover:border-zinc-400"
-            >
-              Login
-            </Link>
-            <Link
-              href="/customer"
-              className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-800 transition hover:border-zinc-400"
-            >
-              Customer
-            </Link>
-            {showSellerAdminLinks ? (
+            {!session ? (
               <Link
-                href="/seller"
-                className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-900 transition hover:border-zinc-400"
+                href="/login"
+                className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-800 transition hover:border-zinc-400"
               >
-                Seller
+                Login
               </Link>
             ) : null}
             {session ? (
@@ -398,7 +385,7 @@ export default function AdminPage() {
                   clearSession();
                   setSession(null);
                 }}
-                className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800"
+                className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800"
               >
                 Sign out
               </button>
@@ -410,15 +397,30 @@ export default function AdminPage() {
       <main className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-6 py-10">
         <section className="flex flex-col gap-2">
           <h2 className="text-3xl font-semibold text-zinc-900 sm:text-4xl">
-            Screen, then process payment.
+            Review requests, then track fulfillment.
           </h2>
           <p className="max-w-3xl text-sm leading-6 text-zinc-600">
             The list stays lean. Details appear when you select a card.
           </p>
         </section>
 
+        <section className="flex flex-col gap-3 rounded-md border border-zinc-200 bg-white px-5 py-4 text-sm text-zinc-700 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="font-semibold text-zinc-900">Moderate live auctions</p>
+            <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">
+              Open the auction list to end, extend, or remove listings.
+            </p>
+          </div>
+          <Link
+            href="/customer"
+            className="rounded-md border border-zinc-300 bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-800 transition hover:border-zinc-400"
+          >
+            View auctions
+          </Link>
+        </section>
+
         {session ? (
-          <section className="flex flex-col gap-3 rounded-2xl border border-zinc-200 bg-white px-5 py-4 text-sm text-zinc-800 sm:flex-row sm:items-center sm:justify-between">
+          <section className="flex flex-col gap-3 rounded-md border border-zinc-200 bg-white px-5 py-4 text-sm text-zinc-800 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="font-semibold">Signed in as {session.name}</p>
               <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">
@@ -427,7 +429,7 @@ export default function AdminPage() {
             </div>
             <Link
               href={sessionRoute}
-              className="rounded-lg border border-zinc-300 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-800 transition hover:border-zinc-400"
+              className="rounded-md border border-zinc-300 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-800 transition hover:border-zinc-400"
             >
               Dashboard
             </Link>
@@ -436,14 +438,14 @@ export default function AdminPage() {
 
         <section className="flex flex-wrap gap-2">
           {[
-            { key: "screening" as const, label: "Screening", count: queue.length },
-            { key: "payment" as const, label: "Payment Processing", count: escrow.length },
+            { key: "screening" as const, label: "Requests", count: queue.length },
+            { key: "payment" as const, label: "Fulfillment", count: escrow.length },
           ].map((tab) => (
             <button
               key={tab.key}
               type="button"
               onClick={() => setActiveTab(tab.key)}
-              className={`rounded-full border px-5 py-2 text-xs font-semibold uppercase tracking-[0.2em] transition ${
+              className={`rounded-md border px-5 py-2 text-xs font-semibold uppercase tracking-[0.2em] transition ${
                 activeTab === tab.key
                   ? "border-violet-300 bg-violet-50 text-violet-700"
                   : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-400"
@@ -455,15 +457,15 @@ export default function AdminPage() {
         </section>
 
         {activeTab === "screening" ? (
-          <section className="rounded-3xl border border-zinc-200 bg-white p-6">
+          <section className="rounded-md border border-zinc-200 bg-white p-6">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
               <div>
-                <h3 className="text-lg font-semibold text-zinc-900">Screening queue</h3>
+                <h3 className="text-lg font-semibold text-zinc-900">Auction requests</h3>
                 <p className="mt-1 text-sm text-zinc-600">
-                  Select a listing to review its details.
+                  Select a request to review its details.
                 </p>
               </div>
-              <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-600">
+              <div className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-600">
                 {filteredQueue.length}
               </div>
             </div>
@@ -478,7 +480,7 @@ export default function AdminPage() {
                   key={filter.key}
                   type="button"
                   onClick={() => setQueueFilter(filter.key as typeof queueFilter)}
-                  className={`rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] transition ${
+                  className={`rounded-md border px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] transition ${
                     queueFilter === filter.key
                       ? "border-violet-300 bg-violet-50 text-violet-700"
                       : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-400"
@@ -502,7 +504,7 @@ export default function AdminPage() {
                         key={`${item.source}-${item.id}`}
                         type="button"
                         onClick={() => setSelectedQueueId(item.id)}
-                        className={`rounded-2xl border p-4 text-left transition ${
+                        className={`rounded-md border p-4 text-left transition ${
                           isSelected
                             ? "border-zinc-900 bg-zinc-900 text-white"
                             : "border-zinc-200 bg-zinc-50 text-zinc-900 hover:border-zinc-300"
@@ -530,7 +532,7 @@ export default function AdminPage() {
                             </p>
                           </div>
                           <span
-                            className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${
+                            className={`rounded-md border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${
                               isSelected
                                 ? "border-white/30 bg-white/10 text-white"
                                 : riskTone(item.risk)
@@ -545,7 +547,7 @@ export default function AdminPage() {
                 </div>
 
                 {selectedQueueItem ? (
-                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-5">
+                  <div className="rounded-md border border-zinc-200 bg-zinc-50 p-5">
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div>
                         <p className="text-lg font-semibold text-zinc-900">{selectedQueueItem.title}</p>
@@ -554,11 +556,11 @@ export default function AdminPage() {
                         </p>
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-700">
+                        <span className="rounded-md border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-700">
                           {selectedQueueItem.source === "pending" ? "seller" : "platform"}
                         </span>
                         <span
-                          className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${riskTone(
+                          className={`rounded-md border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${riskTone(
                             selectedQueueItem.risk
                           )}`}
                         >
@@ -568,13 +570,13 @@ export default function AdminPage() {
                     </div>
 
                     <div className="mt-4 grid grid-cols-2 gap-3">
-                      <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                      <div className="rounded-md border border-zinc-200 bg-white px-4 py-3">
                         <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Start price</p>
                         <p className="mt-1 text-xl font-semibold text-zinc-900">
                           {formatThb(selectedQueueItem.startingPriceThb)}
                         </p>
                       </div>
-                      <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                      <div className="rounded-md border border-zinc-200 bg-white px-4 py-3">
                         <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Duration</p>
                         <p className="mt-1 text-xl font-semibold text-zinc-900">
                           {selectedQueueItem.durationHours}h
@@ -582,7 +584,7 @@ export default function AdminPage() {
                       </div>
                     </div>
 
-                    <div className="mt-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-xs uppercase tracking-[0.2em] text-zinc-500">
+                    <div className="mt-3 rounded-md border border-zinc-200 bg-white px-4 py-3 text-xs uppercase tracking-[0.2em] text-zinc-500">
                       Submitted {selectedQueueItem.submittedLabel}
                     </div>
 
@@ -591,16 +593,16 @@ export default function AdminPage() {
                         type="button"
                         onClick={() => approveItem(selectedQueueItem)}
                         disabled={nowMs === 0}
-                        className="rounded-2xl bg-zinc-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
+                        className="rounded-md bg-zinc-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
                       >
-                        Approve listing
+                        Approve request
                       </button>
                       <button
                         type="button"
                         onClick={() => rejectItem(selectedQueueItem)}
-                        className="rounded-2xl border border-zinc-300 px-4 py-3 text-sm font-semibold text-zinc-900 transition hover:border-zinc-400"
+                        className="rounded-md border border-zinc-300 px-4 py-3 text-sm font-semibold text-zinc-900 transition hover:border-zinc-400"
                       >
-                        Reject listing
+                        Reject request
                       </button>
                     </div>
 
@@ -613,26 +615,26 @@ export default function AdminPage() {
             )}
           </section>
         ) : (
-          <section className="rounded-3xl border border-zinc-200 bg-white p-6">
+          <section className="rounded-md border border-zinc-200 bg-white p-6">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
               <div>
-                <h3 className="text-lg font-semibold text-zinc-900">Payment processing</h3>
+                <h3 className="text-lg font-semibold text-zinc-900">Fulfillment status</h3>
                 <p className="mt-1 text-sm text-zinc-600">
-                  Select a case to view its payout readiness.
+                  Select a case to view its delivery status.
                 </p>
               </div>
               <div className="flex items-center gap-2">
-                <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-600">
+                <div className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-600">
                   Cases {escrow.length}
                 </div>
-                <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-600">
-                  Held {formatThb(heldThb)}
+                <div className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-600">
+                  Total value {formatThb(heldThb)}
                 </div>
               </div>
             </div>
 
             {escrow.length === 0 ? (
-              <p className="mt-6 text-sm text-zinc-600">No payment cases yet.</p>
+              <p className="mt-6 text-sm text-zinc-600">No fulfillment cases yet.</p>
             ) : (
               <div className="mt-6 grid grid-cols-1 gap-5 lg:grid-cols-[0.95fr_1.05fr]">
                 <div className="flex flex-col gap-3">
@@ -644,7 +646,7 @@ export default function AdminPage() {
                         key={item.id}
                         type="button"
                         onClick={() => setSelectedEscrowId(item.id)}
-                        className={`rounded-2xl border p-4 text-left transition ${
+                        className={`rounded-md border p-4 text-left transition ${
                           isSelected
                             ? "border-zinc-900 bg-zinc-900 text-white"
                             : "border-zinc-200 bg-zinc-50 text-zinc-900 hover:border-zinc-300"
@@ -662,7 +664,7 @@ export default function AdminPage() {
                             </p>
                           </div>
                           <span
-                            className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${
+                            className={`rounded-md border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${
                               isSelected
                                 ? "border-white/30 bg-white/10 text-white"
                                 : escrowTone(item.status)
@@ -678,7 +680,7 @@ export default function AdminPage() {
                 </div>
 
                 {selectedEscrowItem ? (
-                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-5">
+                  <div className="rounded-md border border-zinc-200 bg-zinc-50 p-5">
                     <div className="flex flex-col gap-2">
                       <p className="text-lg font-semibold text-zinc-900">{selectedEscrowItem.title}</p>
                       <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">
@@ -687,13 +689,13 @@ export default function AdminPage() {
                     </div>
 
                     <div className="mt-4 grid grid-cols-2 gap-3">
-                      <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
-                        <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Held amount</p>
+                      <div className="rounded-md border border-zinc-200 bg-white px-4 py-3">
+                        <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Order value</p>
                         <p className="mt-1 text-xl font-semibold text-zinc-900">
                           {formatThb(selectedEscrowItem.amountThb)}
                         </p>
                       </div>
-                      <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                      <div className="rounded-md border border-zinc-200 bg-white px-4 py-3">
                         <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Status</p>
                         <p className="mt-1 text-xl font-semibold text-zinc-900">
                           {selectedEscrowItem.status}
@@ -709,7 +711,7 @@ export default function AdminPage() {
                         {ESCROW_FLOW.map((step, index) => (
                           <span
                             key={step}
-                            className={`rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${
+                            className={`rounded-md border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${
                               index <= selectedEscrowIndex
                                 ? "border-zinc-900 bg-zinc-900 text-white"
                                 : "border-zinc-300 bg-white text-zinc-600"
@@ -721,14 +723,14 @@ export default function AdminPage() {
                       </div>
                     </div>
 
-                    <div className="mt-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-700">
+                    <div className="mt-4 rounded-md border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-700">
                       {selectedEscrowItem.note}
                     </div>
 
                     <button
                       type="button"
                       onClick={() => advanceEscrow(selectedEscrowItem.id)}
-                      className="mt-5 w-full rounded-2xl bg-zinc-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-zinc-800"
+                      className="mt-5 w-full rounded-md bg-zinc-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-zinc-800"
                     >
                       Advance case
                     </button>

@@ -46,17 +46,17 @@ function computeStats(): LandingStats {
 const flows = [
   {
     title: "Buyer",
-    detail: "View an item and place bids with minimum validation.",
+    detail: "Browse approved auctions and place bids.",
     href: "/customer",
   },
   {
     title: "Seller",
-    detail: "Submit a listing into the screening queue.",
+    detail: "Submit a listing for review.",
     href: "/seller",
   },
   {
     title: "Admin",
-    detail: "Screen items, then process payment cases.",
+    detail: "Approve requests and track fulfillment.",
     href: "/admin",
   },
 ] as const;
@@ -107,7 +107,7 @@ export default function HomePage() {
       <header className="border-b border-zinc-200 bg-white">
         <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-6 py-5">
           <Link href="/" className="flex items-center gap-3">
-            <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-violet-600 text-sm font-bold text-white">
+            <span className="inline-flex h-10 w-10 items-center justify-center rounded-md bg-violet-600 text-sm font-bold text-white">
               PM
             </span>
             <div>
@@ -119,19 +119,19 @@ export default function HomePage() {
             <button
               type="button"
               onClick={handleReset}
-              className="rounded-lg border border-rose-200 px-4 py-2 text-sm font-semibold text-rose-700 transition hover:border-rose-300 hover:bg-rose-50"
+              className="rounded-md border border-rose-200 px-4 py-2 text-sm font-semibold text-rose-700 transition hover:border-rose-300 hover:bg-rose-50"
             >
               Reset demo
             </button>
             <Link
               href="/login"
-              className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-800 transition hover:border-zinc-400"
+              className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-800 transition hover:border-zinc-400"
             >
               Login
             </Link>
             <Link
               href={sessionRoute}
-              className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800"
+              className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800"
             >
               {session ? "Dashboard" : "Open"}
             </Link>
@@ -140,32 +140,31 @@ export default function HomePage() {
       </header>
 
       <main className="mx-auto flex w-full max-w-4xl flex-col gap-8 px-6 py-12">
-        <section className="rounded-2xl border border-zinc-200 bg-white p-8">
+        <section className="rounded-md border border-zinc-200 bg-white p-8">
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
-            Requirement engineering prototype
+            Prototype
           </p>
           <h1 className="mt-2 text-4xl font-semibold text-zinc-900 sm:text-5xl">
             Pop Mart Auction Platform
           </h1>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-zinc-600">
-            A simple no-backend demo of screened listings, escrow protection,
-            and controlled payout flow.
+            Browse approved listings, place bids, and follow post-auction fulfillment.
           </p>
 
           <p className="mt-4 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
-            Auctions {stats.auctions} • Screening {stats.screeningItems} • Escrow {stats.escrowCases}
+            Auctions {stats.auctions} • Requests {stats.screeningItems} • Fulfillment {stats.escrowCases}
           </p>
 
           <div className="mt-6 flex flex-col gap-3 sm:flex-row">
             <Link
               href="/login"
-              className="inline-flex items-center justify-center rounded-xl bg-zinc-900 px-6 py-3 text-sm font-semibold text-white transition hover:bg-zinc-800"
+              className="inline-flex items-center justify-center rounded-md bg-zinc-900 px-6 py-3 text-sm font-semibold text-white transition hover:bg-zinc-800"
             >
               Open login
             </Link>
             <Link
               href={sessionRoute}
-              className="inline-flex items-center justify-center rounded-xl border border-zinc-300 px-6 py-3 text-sm font-semibold text-zinc-800 transition hover:border-zinc-400"
+              className="inline-flex items-center justify-center rounded-md border border-zinc-300 px-6 py-3 text-sm font-semibold text-zinc-800 transition hover:border-zinc-400"
             >
               {session ? "Continue" : "Preview flows"}
             </Link>
@@ -173,7 +172,7 @@ export default function HomePage() {
         </section>
 
         {session ? (
-          <section className="flex flex-col gap-3 rounded-2xl border border-zinc-200 bg-white px-5 py-4 text-sm text-zinc-800 sm:flex-row sm:items-center sm:justify-between">
+          <section className="flex flex-col gap-3 rounded-md border border-zinc-200 bg-white px-5 py-4 text-sm text-zinc-800 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="font-semibold">Signed in as {session.name}</p>
               <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">{session.role}</p>
@@ -181,7 +180,7 @@ export default function HomePage() {
             <div className="flex items-center gap-2">
               <Link
                 href={sessionRoute}
-                className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800"
+                className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800"
               >
                 Go to dashboard
               </Link>
@@ -191,7 +190,7 @@ export default function HomePage() {
                   clearSession();
                   refreshAll();
                 }}
-                className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-800 transition hover:border-zinc-400"
+                className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-800 transition hover:border-zinc-400"
               >
                 Sign out
               </button>
@@ -201,13 +200,13 @@ export default function HomePage() {
 
         <section className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           {flows.map((flow) => (
-            <article key={flow.title} className="rounded-2xl border border-zinc-200 bg-white p-5">
+            <article key={flow.title} className="rounded-md border border-zinc-200 bg-white p-5">
               <h2 className="text-base font-semibold text-zinc-900">{flow.title}</h2>
               <p className="mt-2 text-sm text-zinc-600">{flow.detail}</p>
               <div className="mt-4">
                 <Link
                   href={flow.href}
-                  className="inline-flex items-center rounded-lg border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-800 transition hover:border-zinc-400"
+                  className="inline-flex items-center rounded-md border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-800 transition hover:border-zinc-400"
                 >
                   Open {flow.title}
                 </Link>

@@ -93,7 +93,6 @@ export default function CustomerPage() {
   }, [auctions, nowMs]);
 
   const sessionRoute = session ? getMockCredentials(session.role).redirectTo : "/login";
-  const showSellerAdminLinks = session?.role !== "buyer";
 
   return (
     <div className="min-h-screen bg-zinc-50 text-zinc-900">
@@ -109,37 +108,23 @@ export default function CustomerPage() {
             <button
               type="button"
               onClick={handleReset}
-              className="rounded-lg border border-rose-200 px-4 py-2 text-sm font-semibold text-rose-700 transition hover:border-rose-300 hover:bg-rose-50"
+              className="rounded-md border border-rose-200 px-4 py-2 text-sm font-semibold text-rose-700 transition hover:border-rose-300 hover:bg-rose-50"
             >
               Reset demo
             </button>
             <Link
               href="/"
-              className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-800 transition hover:border-zinc-400"
+              className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-800 transition hover:border-zinc-400"
             >
               Landing
             </Link>
-            <Link
-              href="/login"
-              className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-800 transition hover:border-zinc-400"
-            >
-              Login
-            </Link>
-            {showSellerAdminLinks ? (
-              <>
-                <Link
-                  href="/seller"
-                  className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-800 transition hover:border-zinc-400"
-                >
-                  Seller
-                </Link>
-                <Link
-                  href="/admin"
-                  className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-900 transition hover:border-zinc-400"
-                >
-                  Admin
-                </Link>
-              </>
+            {!session ? (
+              <Link
+                href="/login"
+                className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-800 transition hover:border-zinc-400"
+              >
+                Login
+              </Link>
             ) : null}
             {session ? (
               <button
@@ -148,7 +133,7 @@ export default function CustomerPage() {
                   clearSession();
                   setSession(null);
                 }}
-                className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800"
+                className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800"
               >
                 Sign out
               </button>
@@ -169,26 +154,31 @@ export default function CustomerPage() {
         </section>
 
         {session ? (
-          <section className="flex flex-col gap-3 rounded-2xl border border-violet-200 bg-violet-50 px-5 py-4 text-sm text-violet-900 sm:flex-row sm:items-center sm:justify-between">
+          <section className="flex flex-col gap-3 rounded-md border border-violet-200 bg-violet-50 px-5 py-4 text-sm text-violet-900 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="font-semibold">Signed in as {session.name}</p>
               <p className="text-xs uppercase tracking-[0.2em] text-violet-700">
                 {session.role}
               </p>
+              {session.role === "admin" ? (
+                <p className="mt-1 text-xs text-violet-700">
+                  Admin tools are available in auction details.
+                </p>
+              ) : null}
             </div>
             <Link
               href={sessionRoute}
-              className="rounded-lg border border-violet-200 bg-white px-4 py-2 text-sm font-semibold text-violet-700 transition hover:border-violet-300"
+              className="rounded-md border border-violet-200 bg-white px-4 py-2 text-sm font-semibold text-violet-700 transition hover:border-violet-300"
             >
               Open your dashboard
             </Link>
           </section>
         ) : (
-          <section className="flex flex-col gap-2 rounded-2xl border border-zinc-200 bg-white px-5 py-4 text-sm text-zinc-700 sm:flex-row sm:items-center sm:justify-between">
+          <section className="flex flex-col gap-2 rounded-md border border-zinc-200 bg-white px-5 py-4 text-sm text-zinc-700 sm:flex-row sm:items-center sm:justify-between">
             <p className="font-semibold">You are not signed in.</p>
             <Link
               href="/login"
-              className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800"
+              className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800"
             >
               Go to login
             </Link>
@@ -200,10 +190,10 @@ export default function CustomerPage() {
             <Link
               key={auction.id}
               href={`/customer/${auction.id}`}
-              className="group flex h-full flex-col rounded-3xl border border-zinc-200 bg-white p-5 transition hover:-translate-y-0.5 hover:border-zinc-300"
+              className="group flex h-full flex-col rounded-md border border-zinc-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-md"
             >
-              <div className="rounded-2xl border border-zinc-200 bg-gradient-to-br from-zinc-100 to-zinc-200 p-6">
-                <div className="flex h-32 items-center justify-center rounded-xl border border-dashed border-zinc-300 bg-white text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
+              <div className="rounded-md border border-zinc-200 bg-zinc-100 p-4">
+                <div className="flex h-32 items-center justify-center rounded-md border border-dashed border-zinc-300 bg-zinc-50 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
                   {auction.series}
                 </div>
               </div>
@@ -217,7 +207,7 @@ export default function CustomerPage() {
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
-                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+                  <div className="rounded-md border border-zinc-200 bg-white px-4 py-3">
                     <p className="text-[11px] uppercase tracking-[0.2em] text-zinc-500">
                       Current
                     </p>
@@ -225,7 +215,7 @@ export default function CustomerPage() {
                       {formatThb(auction.currentBidThb)}
                     </p>
                   </div>
-                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+                  <div className="rounded-md border border-zinc-200 bg-white px-4 py-3">
                     <p className="text-[11px] uppercase tracking-[0.2em] text-zinc-500">
                       Time left
                     </p>

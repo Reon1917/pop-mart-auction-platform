@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Pop Mart Auction Platform",
   description:
-    "Secure Pop Mart collectible auctions with escrow, verification, and tracked delivery.",
+    "Secure Pop Mart collectible auctions with payment protection, authenticity checks, and tracked delivery.",
 };
 
 export default function RootLayout({

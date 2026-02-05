@@ -23,7 +23,7 @@ export const Card = forwardRef<HTMLDivElement, CardProps>(
     ref
   ) => {
     const baseStyles =
-      "bg-white rounded-2xl border border-zinc-200/80 shadow-sm";
+      "bg-white rounded-md border border-zinc-200/80 shadow-sm";
     const hoverStyles = hover
       ? "cursor-pointer transition-all duration-200 hover:shadow-md hover:border-zinc-300 hover:-translate-y-0.5"
       : "";

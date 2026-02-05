@@ -44,7 +44,7 @@ export default function SellerPage() {
 
   const [message, setMessage] = useState<SellerMessage>({
     tone: "neutral",
-    text: "Submissions go to the admin screening queue via localStorage.",
+    text: "Submissions go to the admin review queue via localStorage.",
   });
 
   const handleReset = () => {
@@ -61,7 +61,7 @@ export default function SellerPage() {
     setSession(getSession());
     setMessage({
       tone: "neutral",
-      text: "Demo data reset. Submissions go to the admin screening queue via localStorage.",
+      text: "Demo data reset. Submissions go to the admin review queue via localStorage.",
     });
   };
 
@@ -120,7 +120,6 @@ export default function SellerPage() {
   }, [auctions, nowMs, sellerName]);
 
   const sessionRoute = session ? getMockCredentials(session.role).redirectTo : "/login";
-  const showSellerAdminLinks = session?.role !== "buyer";
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -179,34 +178,22 @@ export default function SellerPage() {
             <button
               type="button"
               onClick={handleReset}
-              className="rounded-lg border border-rose-200 px-4 py-2 text-sm font-semibold text-rose-700 transition hover:border-rose-300 hover:bg-rose-50"
+              className="rounded-md border border-rose-200 px-4 py-2 text-sm font-semibold text-rose-700 transition hover:border-rose-300 hover:bg-rose-50"
             >
               Reset demo
             </button>
             <Link
               href="/"
-              className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-800 transition hover:border-zinc-400"
+              className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-800 transition hover:border-zinc-400"
             >
               Landing
             </Link>
-            <Link
-              href="/login"
-              className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-800 transition hover:border-zinc-400"
-            >
-              Login
-            </Link>
-            <Link
-              href="/customer"
-              className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-800 transition hover:border-zinc-400"
-            >
-              Customer
-            </Link>
-            {showSellerAdminLinks ? (
+            {!session ? (
               <Link
-                href="/admin"
-                className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-900 transition hover:border-zinc-400"
+                href="/login"
+                className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-800 transition hover:border-zinc-400"
               >
-                Admin
+                Login
               </Link>
             ) : null}
             {session ? (
@@ -216,7 +203,7 @@ export default function SellerPage() {
                   clearSession();
                   setSession(null);
                 }}
-                className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800"
+                className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800"
               >
                 Sign out
               </button>
@@ -228,16 +215,16 @@ export default function SellerPage() {
       <main className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-6 py-10">
         <section className="flex flex-col gap-2">
           <h2 className="text-3xl font-semibold text-zinc-900 sm:text-4xl">
-            Submit, then wait for screening.
+            Submit, then wait for review.
           </h2>
           <p className="max-w-3xl text-sm leading-6 text-zinc-600">
-            This flow sends listings into the admin queue. Admin approvals create
-            live auctions for customers.
+            This flow sends listings to the admin review queue. Approved requests
+            become live auctions for customers.
           </p>
         </section>
 
         {session ? (
-          <section className="flex flex-col gap-3 rounded-2xl border border-violet-200 bg-violet-50 px-5 py-4 text-sm text-violet-900 sm:flex-row sm:items-center sm:justify-between">
+          <section className="flex flex-col gap-3 rounded-md border border-violet-200 bg-violet-50 px-5 py-4 text-sm text-violet-900 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="font-semibold">Signed in as {session.name}</p>
               <p className="text-xs uppercase tracking-[0.2em] text-violet-700">
@@ -246,17 +233,17 @@ export default function SellerPage() {
             </div>
             <Link
               href={sessionRoute}
-              className="rounded-lg border border-violet-200 bg-white px-4 py-2 text-sm font-semibold text-violet-700 transition hover:border-violet-300"
+              className="rounded-md border border-violet-200 bg-white px-4 py-2 text-sm font-semibold text-violet-700 transition hover:border-violet-300"
             >
               Open your dashboard
             </Link>
           </section>
         ) : (
-          <section className="flex flex-col gap-2 rounded-2xl border border-zinc-200 bg-white px-5 py-4 text-sm text-zinc-700 sm:flex-row sm:items-center sm:justify-between">
+          <section className="flex flex-col gap-2 rounded-md border border-zinc-200 bg-white px-5 py-4 text-sm text-zinc-700 sm:flex-row sm:items-center sm:justify-between">
             <p className="font-semibold">You are not signed in.</p>
             <Link
               href="/login"
-              className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800"
+              className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800"
             >
               Go to login
             </Link>
@@ -264,7 +251,7 @@ export default function SellerPage() {
         )}
 
         <section className="grid grid-cols-1 gap-6 lg:grid-cols-[1.05fr_0.95fr]">
-          <section className="rounded-2xl border border-zinc-200 bg-white p-5">
+          <section className="rounded-md border border-zinc-200 bg-white p-5">
             <h3 className="text-lg font-semibold text-zinc-900">New Listing</h3>
             <p className="mt-1 text-sm text-zinc-600">
               Duration must be between 1 hour and 24 hours.
@@ -278,7 +265,7 @@ export default function SellerPage() {
                 <input
                   value={sellerName}
                   onChange={(event) => setSellerName(event.target.value)}
-                  className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none transition focus:border-zinc-500"
+                  className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none transition focus:border-zinc-500"
                 />
               </label>
 
@@ -289,7 +276,7 @@ export default function SellerPage() {
                 <input
                   value={title}
                   onChange={(event) => setTitle(event.target.value)}
-                  className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none transition focus:border-zinc-500"
+                  className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none transition focus:border-zinc-500"
                 />
               </label>
 
@@ -301,7 +288,7 @@ export default function SellerPage() {
                   <input
                     value={series}
                     onChange={(event) => setSeries(event.target.value)}
-                    className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none transition focus:border-zinc-500"
+                    className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none transition focus:border-zinc-500"
                   />
                 </label>
                 <label className="flex flex-col gap-1">
@@ -313,7 +300,7 @@ export default function SellerPage() {
                     min={1}
                     value={startingPriceThb}
                     onChange={(event) => setStartingPriceThb(Number(event.target.value))}
-                    className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none transition focus:border-zinc-500"
+                    className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none transition focus:border-zinc-500"
                   />
                 </label>
               </div>
@@ -328,28 +315,28 @@ export default function SellerPage() {
                   max={24}
                   value={durationHours}
                   onChange={(event) => setDurationHours(Number(event.target.value))}
-                  className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none transition focus:border-zinc-500"
+                  className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none transition focus:border-zinc-500"
                 />
               </label>
 
               <button
                 type="submit"
-                className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800"
+                className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800"
               >
-                Submit for screening
+                Submit for review
               </button>
             </form>
           </section>
 
           <div className="flex flex-col gap-6">
-            <section className={`rounded-2xl border px-4 py-3 text-sm ${messageToneClass}`}>
+            <section className={`rounded-md border px-4 py-3 text-sm ${messageToneClass}`}>
               {message.text}
             </section>
 
-            <section className="rounded-2xl border border-zinc-200 bg-white p-5">
+            <section className="rounded-md border border-zinc-200 bg-white p-5">
               <div className="flex items-end justify-between">
                 <h3 className="text-lg font-semibold text-zinc-900">Your Pending Listings</h3>
-                <span className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-600">
+                <span className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-600">
                   {sellerPending.length}
                 </span>
               </div>
@@ -360,7 +347,7 @@ export default function SellerPage() {
                   {sellerPending.map((item) => (
                     <div
                       key={item.id}
-                      className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-700"
+                      className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-700"
                     >
                       <p className="font-semibold text-zinc-900">{item.title}</p>
                       <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">
@@ -372,10 +359,10 @@ export default function SellerPage() {
               )}
             </section>
 
-            <section className="rounded-2xl border border-zinc-200 bg-white p-5">
+            <section className="rounded-md border border-zinc-200 bg-white p-5">
               <div className="flex items-end justify-between">
                 <h3 className="text-lg font-semibold text-zinc-900">Your Live Auctions</h3>
-                <span className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-600">
+                <span className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-600">
                   {sellerAuctions.length}
                 </span>
               </div>
@@ -388,7 +375,7 @@ export default function SellerPage() {
                   {sellerAuctions.map((item) => (
                     <div
                       key={item.id}
-                      className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-3"
+                      className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-3"
                     >
                       <div className="flex items-center justify-between">
                         <p className="font-semibold text-zinc-900">{item.title}</p>

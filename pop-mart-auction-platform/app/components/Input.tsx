@@ -30,7 +30,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
     const inputId = id ?? generatedId;
 
     const baseStyles =
-      "w-full rounded-xl border bg-white px-3 py-2.5 text-sm text-zinc-900 placeholder:text-zinc-400 transition-all duration-200 outline-none";
+      "w-full rounded-md border bg-white px-3 py-2.5 text-sm text-zinc-900 placeholder:text-zinc-400 transition-all duration-200 outline-none";
     const stateStyles = error
       ? "border-rose-300 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20"
       : "border-zinc-200 focus:border-violet-400 focus:ring-2 focus:ring-violet-500/20 hover:border-zinc-300";
@@ -90,7 +90,7 @@ export const TextArea = forwardRef<HTMLTextAreaElement, TextAreaProps>(
     const inputId = id ?? generatedId;
 
     const baseStyles =
-      "w-full rounded-xl border bg-white px-3 py-2.5 text-sm text-zinc-900 placeholder:text-zinc-400 transition-all duration-200 outline-none resize-none";
+      "w-full rounded-md border bg-white px-3 py-2.5 text-sm text-zinc-900 placeholder:text-zinc-400 transition-all duration-200 outline-none resize-none";
     const stateStyles = error
       ? "border-rose-300 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20"
       : "border-zinc-200 focus:border-violet-400 focus:ring-2 focus:ring-violet-500/20 hover:border-zinc-300";

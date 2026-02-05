@@ -49,7 +49,7 @@ export function StatCard({
 
   return (
     <div
-      className={`rounded-2xl border p-4 shadow-sm transition-all duration-200 hover:shadow-md ${styles.card} ${className}`}
+      className={`rounded-md border p-4 shadow-sm transition-all duration-200 hover:shadow-md ${styles.card} ${className}`}
     >
       <div className="flex items-start justify-between">
         <div className="flex-1">
@@ -69,7 +69,7 @@ export function StatCard({
         </div>
         {icon && (
           <div
-            className={`flex-shrink-0 p-2 rounded-xl ${
+            className={`flex-shrink-0 p-2 rounded-md ${
               variant === "default"
                 ? "bg-zinc-100 text-zinc-600"
                 : "bg-white/10 text-white"

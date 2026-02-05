@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { formatDuration, formatThb } from "@/app/lib/format";
 import {
@@ -45,6 +45,7 @@ function findLatestBid(records: BidRecord[], auctionId: string) {
 export default function AuctionDetailPage() {
   const params = useParams<{ auctionId: string }>();
   const auctionId = Array.isArray(params?.auctionId) ? params.auctionId[0] : params?.auctionId;
+  const router = useRouter();
 
   const [auctions, setAuctions] = useState<CustomerAuction[]>([]);
   const [bids, setBids] = useState<BidRecord[]>(() => getBidRecords());
@@ -157,6 +158,69 @@ export default function AuctionDetailPage() {
   }, [auctionKey, nextBidValue]);
 
   const sessionRoute = session ? getMockCredentials(session.role).redirectTo : "/login";
+  const isAdmin = session?.role === "admin";
+
+  function updateAuctions(nextAuctions: CustomerAuction[], message?: ActionState) {
+    setAuctions(nextAuctions);
+    setCustomerAuctions(nextAuctions);
+    if (message) {
+      setActionState(message);
+    }
+  }
+
+  function endAuctionNow() {
+    if (!auctionWithTime) {
+      setActionState({ tone: "warning", message: "Auction not found." });
+      return;
+    }
+    if (auctionWithTime.hasEnded) {
+      setActionState({ tone: "warning", message: "This auction is already closed." });
+      return;
+    }
+    const nextAuctions = auctions.map((item) =>
+      item.id === auctionWithTime.id ? { ...item, endsAtMs: nowMs } : item
+    );
+    updateAuctions(nextAuctions, {
+      tone: "success",
+      message: "Auction closed. Bidding is now disabled.",
+    });
+  }
+
+  function extendAuction(hours: number) {
+    if (!auctionWithTime) {
+      setActionState({ tone: "warning", message: "Auction not found." });
+      return;
+    }
+    const extensionMs = hours * 60 * 60 * 1000;
+    const nextAuctions = auctions.map((item) =>
+      item.id === auctionWithTime.id
+        ? { ...item, endsAtMs: item.endsAtMs + extensionMs }
+        : item
+    );
+    updateAuctions(nextAuctions, {
+      tone: "success",
+      message: `Auction extended by ${hours} hour${hours === 1 ? "" : "s"}.`,
+    });
+  }
+
+  function removeAuction() {
+    if (!auctionWithTime) {
+      setActionState({ tone: "warning", message: "Auction not found." });
+      return;
+    }
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm("Remove this auction from the live list?")
+    ) {
+      return;
+    }
+    const nextAuctions = auctions.filter((item) => item.id !== auctionWithTime.id);
+    updateAuctions(nextAuctions, {
+      tone: "success",
+      message: "Auction removed from the live list.",
+    });
+    router.push("/customer");
+  }
 
   function placeBid(amountThb: number) {
     if (!auctionWithTime) {
@@ -210,7 +274,7 @@ export default function AuctionDetailPage() {
 
     setActionState({
       tone: "success",
-      message: `Your bid is now ${formatThb(amountThb)}. Funds would be held in escrow if you win.`,
+      message: `Your bid is now ${formatThb(amountThb)}. Payment is secured until delivery if you win.`,
     });
   }
 
@@ -245,22 +309,24 @@ export default function AuctionDetailPage() {
             <button
               type="button"
               onClick={handleReset}
-              className="rounded-lg border border-rose-200 px-4 py-2 text-sm font-semibold text-rose-700 transition hover:border-rose-300 hover:bg-rose-50"
+              className="rounded-md border border-rose-200 px-4 py-2 text-sm font-semibold text-rose-700 transition hover:border-rose-300 hover:bg-rose-50"
             >
               Reset demo
             </button>
             <Link
               href="/customer"
-              className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-800 transition hover:border-zinc-400"
+              className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-800 transition hover:border-zinc-400"
             >
               Back to list
             </Link>
-            <Link
-              href="/login"
-              className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-800 transition hover:border-zinc-400"
-            >
-              Login
-            </Link>
+            {!session ? (
+              <Link
+                href="/login"
+                className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-800 transition hover:border-zinc-400"
+              >
+                Login
+              </Link>
+            ) : null}
             {session ? (
               <button
                 type="button"
@@ -268,7 +334,7 @@ export default function AuctionDetailPage() {
                   clearSession();
                   setSession(null);
                 }}
-                className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800"
+                className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800"
               >
                 Sign out
               </button>
@@ -287,21 +353,21 @@ export default function AuctionDetailPage() {
           </Link>
           <Link
             href={sessionRoute}
-            className="rounded-lg border border-zinc-300 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-800 transition hover:border-zinc-400"
+            className="rounded-md border border-zinc-300 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-800 transition hover:border-zinc-400"
           >
             Dashboard
           </Link>
         </section>
 
         {!auctionWithTime ? (
-          <section className="rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-700">
+          <section className="rounded-md border border-zinc-200 bg-white p-6 text-sm text-zinc-700">
             Auction not found. Go back to the list and select another item.
           </section>
         ) : (
           <section className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_0.95fr]">
-            <section className="rounded-3xl border border-zinc-200 bg-white p-6">
-              <div className="rounded-2xl border border-zinc-200 bg-gradient-to-br from-zinc-100 to-zinc-200 p-6">
-                <div className="flex h-72 items-center justify-center rounded-2xl border border-dashed border-zinc-300 bg-white text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
+            <section className="rounded-md border border-zinc-200 bg-white p-6">
+              <div className="rounded-md border border-zinc-200 bg-zinc-100 p-6">
+                <div className="flex h-72 items-center justify-center rounded-md border border-dashed border-zinc-300 bg-zinc-50 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
                   {auctionWithTime.series}
                 </div>
               </div>
@@ -314,13 +380,13 @@ export default function AuctionDetailPage() {
               </div>
 
               <div className="mt-5 grid grid-cols-2 gap-3">
-                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+                <div className="rounded-md border border-zinc-200 bg-white px-4 py-3">
                   <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Current price</p>
                   <p className="mt-1 text-2xl font-semibold text-zinc-900">
                     {formatThb(auctionWithTime.currentBidThb)}
                   </p>
                 </div>
-                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+                <div className="rounded-md border border-zinc-200 bg-white px-4 py-3">
                   <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Time left</p>
                   <p className={`mt-1 text-2xl font-semibold ${auctionWithTime.hasEnded ? "text-zinc-400" : "text-zinc-900"}`}>
                     {auctionWithTime.timeLabel}
@@ -328,13 +394,13 @@ export default function AuctionDetailPage() {
                 </div>
               </div>
 
-              <div className="mt-5 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-700">
+              <div className="mt-5 rounded-md border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-700">
                 Minimum next bid: <span className="font-semibold text-zinc-900">{formatThb(auctionWithTime.nextBid)}</span>
               </div>
             </section>
 
             <section className="flex flex-col gap-4">
-              <section className="rounded-3xl border border-zinc-200 bg-white p-6">
+              <section className="rounded-md border border-zinc-200 bg-white p-6">
                 <h3 className="text-lg font-semibold text-zinc-900">Place a bid</h3>
                 <p className="mt-1 text-sm text-zinc-600">
                   Bids below the minimum are rejected.
@@ -349,7 +415,7 @@ export default function AuctionDetailPage() {
                         type="button"
                         onClick={() => placeBid(amount)}
                         disabled={auctionWithTime.hasEnded}
-                        className="rounded-2xl border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 transition hover:border-zinc-400 disabled:cursor-not-allowed disabled:border-zinc-200 disabled:text-zinc-400"
+                        className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 transition hover:border-zinc-400 disabled:cursor-not-allowed disabled:border-zinc-200 disabled:text-zinc-400"
                       >
                         {formatThb(amount)}
                       </button>
@@ -368,23 +434,61 @@ export default function AuctionDetailPage() {
                       step={auctionWithTime.minIncrementThb}
                       value={bidInput}
                       onChange={(event) => setBidInput(event.target.value)}
-                      className="rounded-2xl border border-zinc-300 bg-white px-4 py-2.5 text-sm text-zinc-900 outline-none transition focus:border-zinc-500"
+                      className="rounded-md border border-zinc-300 bg-white px-4 py-2.5 text-sm text-zinc-900 outline-none transition focus:border-zinc-500"
                     />
                   </label>
                   <button
                     type="submit"
                     disabled={auctionWithTime.hasEnded}
-                    className="rounded-2xl bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
+                    className="rounded-md bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
                   >
                     Confirm bid
                   </button>
                 </form>
               </section>
 
-              <section className="rounded-3xl border border-zinc-200 bg-white p-6">
+              {isAdmin ? (
+                <section className="rounded-md border border-zinc-200 bg-white p-6">
+                  <h3 className="text-lg font-semibold text-zinc-900">Admin moderation</h3>
+                  <p className="mt-1 text-sm text-zinc-600">
+                    Manage timing and visibility for this auction.
+                  </p>
+
+                  <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <button
+                      type="button"
+                      onClick={() => extendAuction(1)}
+                      className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 transition hover:border-zinc-400"
+                    >
+                      Extend 1 hour
+                    </button>
+                    <button
+                      type="button"
+                      onClick={endAuctionNow}
+                      className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900 transition hover:border-amber-400"
+                    >
+                      End auction
+                    </button>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={removeAuction}
+                    className="mt-3 w-full rounded-md border border-rose-300 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 transition hover:border-rose-400"
+                  >
+                    Remove auction
+                  </button>
+
+                  <p className="mt-3 text-xs text-zinc-500">
+                    Changes apply immediately to the live auction list.
+                  </p>
+                </section>
+              ) : null}
+
+              <section className="rounded-md border border-zinc-200 bg-white p-6">
                 <h3 className="text-lg font-semibold text-zinc-900">Your bids</h3>
                 {latestBid ? (
-                  <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-4">
+                  <div className="mt-3 rounded-md border border-zinc-200 bg-white px-4 py-4">
                     <p className="text-sm text-zinc-600">Amount</p>
                     <p className="mt-1 text-2xl font-semibold text-zinc-900">
                       {formatThb(latestBid.amountThb)}
@@ -405,7 +509,7 @@ export default function AuctionDetailPage() {
                     {recentBids.map((record) => (
                       <div
                         key={record.id}
-                        className="flex items-center justify-between rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm"
+                        className="flex items-center justify-between rounded-md border border-zinc-200 bg-white px-4 py-3 text-sm"
                       >
                         <span className="font-semibold text-zinc-900">
                           {formatThb(record.amountThb)}
@@ -418,7 +522,7 @@ export default function AuctionDetailPage() {
                   </div>
                 ) : null}
 
-                <div className={`mt-4 rounded-2xl border px-4 py-3 text-sm ${actionToneClass}`}>
+                <div className={`mt-4 rounded-md border px-4 py-3 text-sm ${actionToneClass}`}>
                   {actionState.message}
                 </div>
               </section>

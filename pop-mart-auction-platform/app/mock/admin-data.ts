@@ -14,7 +14,11 @@ export type AdminEscrowItem = {
   buyer: string;
   seller: string;
   amountThb: number;
-  status: "awaiting pickup" | "verifying" | "ready to ship" | "delivered";
+  status:
+    | "payment secured"
+    | "picked up from seller"
+    | "authenticity check"
+    | "delivered to buyer";
   note: string;
 };
 
@@ -46,8 +50,8 @@ export const DEFAULT_ADMIN_ESCROW: AdminEscrowItem[] = [
     buyer: "bidder_lin",
     seller: "collector_amy",
     amountThb: 4500,
-    status: "awaiting pickup",
-    note: "Pickup window in 6h",
+    status: "payment secured",
+    note: "Buyer payment confirmed and secured.",
   },
   {
     id: "escrow-2",
@@ -55,14 +59,18 @@ export const DEFAULT_ADMIN_ESCROW: AdminEscrowItem[] = [
     buyer: "bidder_jay",
     seller: "milo_pop",
     amountThb: 3360,
-    status: "verifying",
-    note: "Verification in progress",
+    status: "authenticity check",
+    note: "Final authenticity check in progress.",
   },
 ];
 
 export const VERIFICATION_STEPS = [
   {
-    stage: "Courier Pickup",
+    stage: "Payment Secured",
+    detail: "Capture buyer payment and hold until delivery.",
+  },
+  {
+    stage: "Pickup from Seller",
     detail: "Dispatch courier and confirm handoff from seller.",
   },
   {
@@ -70,11 +78,7 @@ export const VERIFICATION_STEPS = [
     detail: "Inspect condition, originality, and match listing photos.",
   },
   {
-    stage: "Ship to Buyer",
-    detail: "Release shipment only after verification passes.",
-  },
-  {
-    stage: "Payout Seller",
-    detail: "Deduct service fee and pay seller within 7 days of delivery.",
+    stage: "Delivered to Buyer",
+    detail: "Confirm delivery before releasing payout to the seller.",
   },
 ] as const;

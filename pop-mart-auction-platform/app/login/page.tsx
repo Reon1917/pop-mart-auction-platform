@@ -19,11 +19,6 @@ import { Badge } from "@/app/components/Badge";
 
 // Icons
 const Icons = {
-  ArrowLeft: () => (
-    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-    </svg>
-  ),
   User: () => (
     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
@@ -83,9 +78,9 @@ const roleIcons: Record<UserRole, React.ReactNode> = {
 };
 
 const roleColors: Record<UserRole, string> = {
-  buyer: "from-violet-500 to-fuchsia-500",
-  seller: "from-emerald-500 to-teal-500",
-  admin: "from-amber-500 to-orange-500",
+  buyer: "bg-violet-100 text-violet-700",
+  seller: "bg-emerald-100 text-emerald-700",
+  admin: "bg-amber-100 text-amber-700",
 };
 
 export default function LoginPage() {
@@ -98,7 +93,6 @@ export default function LoginPage() {
     text: "Use Quick Login to auto-fill demo credentials.",
   });
   const [activeSessionLabel, setActiveSessionLabel] = useState<string | null>(null);
-  const [sessionRole, setSessionRole] = useState<UserRole | null>(null);
   const [mounted, setMounted] = useState(false);
 
   const credentialList = useMemo(() => listMockCredentials(), []);
@@ -110,9 +104,6 @@ export default function LoginPage() {
       setMounted(true);
       if (label) {
         setActiveSessionLabel(label);
-      }
-      if (session?.role) {
-        setSessionRole(session.role);
       }
     });
     return () => window.cancelAnimationFrame(rafId);
@@ -166,12 +157,12 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-violet-50/50 via-white to-white text-zinc-900">
+    <div className="min-h-screen bg-zinc-50 text-zinc-900">
       {/* Navigation */}
-      <header className="sticky top-0 z-50 border-b border-zinc-200/80 bg-white/80 backdrop-blur-xl">
-        <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4">
-          <Link href="/" className="flex items-center gap-3 group">
-            <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-violet-600 to-fuchsia-500 text-sm font-bold text-white shadow-lg shadow-violet-500/25">
+      <header className="border-b border-zinc-200 bg-white">
+        <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-6 py-4">
+          <Link href="/" className="flex items-center gap-3">
+            <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-zinc-900 text-sm font-bold text-white">
               PM
             </span>
             <div>
@@ -183,74 +174,55 @@ export default function LoginPage() {
           </Link>
           <nav className="flex items-center gap-2">
             <Link
-              href="/customer"
-              className="rounded-lg px-3 py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 transition"
+              href="/"
+              className="rounded-md px-3 py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 transition"
             >
-              Customer
+              Landing
             </Link>
-            {sessionRole !== "buyer" ? (
-              <Link
-                href="/admin"
-                className="rounded-lg px-3 py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 transition"
-              >
-                Admin
-              </Link>
-            ) : null}
           </nav>
         </div>
       </header>
 
-      <main className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-6 py-12">
-        {/* Back Link */}
-        <Link
-          href="/"
-          className="inline-flex items-center gap-2 text-sm text-zinc-500 hover:text-zinc-900 transition w-fit"
-        >
-          <Icons.ArrowLeft />
-          Back to home
-        </Link>
-
+      <main className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-6 py-12">
         {/* Header */}
         <section
           className={`transition-all duration-500 ${
             mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"
           }`}
         >
-          <Badge variant="purple" className="mb-3">
-            Demo Environment
+          <Badge variant="neutral" className="mb-3">
+            Demo Login
           </Badge>
-          <h1 className="text-4xl font-bold text-zinc-900">Sign in</h1>
-          <p className="mt-2 text-lg text-zinc-600 max-w-xl">
-            This is a mock login. Choosing a role auto-fills credentials and
-            sends you to the corresponding dashboard.
+          <h1 className="text-3xl font-semibold text-zinc-900 sm:text-4xl">Sign in</h1>
+          <p className="mt-2 text-base text-zinc-600 max-w-xl">
+            Use Quick Login to auto-fill demo credentials and enter each flow.
           </p>
         </section>
 
         {/* Active Session Alert */}
         {activeSessionLabel && (
           <section
-            className={`flex flex-col gap-4 rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-teal-50 px-6 py-5 sm:flex-row sm:items-center sm:justify-between animate-scaleIn`}
+            className={`flex flex-col gap-4 rounded-md border border-emerald-200 bg-emerald-50 px-6 py-5 sm:flex-row sm:items-center sm:justify-between animate-scaleIn`}
           >
             <div className="flex items-center gap-3">
-              <div className="p-2 rounded-xl bg-emerald-100 text-emerald-700">
+              <div className="p-2 rounded-md bg-emerald-100 text-emerald-700">
                 <Icons.Check />
               </div>
               <p className="font-semibold text-emerald-900">
                 Currently signed in as {activeSessionLabel}
               </p>
             </div>
-            <Button
-              variant="outline"
+            <button
               onClick={() => {
                 clearSession();
                 setActiveSessionLabel(null);
-                setSessionRole(null);
                 setMessage({ tone: "neutral", text: "Session cleared." });
               }}
-              leftIcon={<Icons.SignOut />}
+              className="inline-flex items-center gap-2 rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 transition hover:border-zinc-400"
             >
+              <Icons.SignOut />
               Sign out
-            </Button>
+            </button>
           </section>
         )}
 
@@ -261,12 +233,9 @@ export default function LoginPage() {
           }`}
         >
           {/* Login Form */}
-          <Card padding="lg" className="relative overflow-hidden">
-            {/* Gradient accent */}
-            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-violet-500 via-fuchsia-500 to-pink-500" />
-
+          <Card padding="lg">
             <div className="flex items-center gap-4 mb-8">
-              <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-500 flex items-center justify-center text-white shadow-lg shadow-violet-500/25">
+              <div className="h-12 w-12 rounded-md bg-zinc-100 flex items-center justify-center text-zinc-600">
                 <Icons.User />
               </div>
               <div>
@@ -294,7 +263,7 @@ export default function LoginPage() {
                 leftIcon={<Icons.Lock />}
               />
 
-              <Button type="submit" size="lg" className="mt-2">
+              <Button type="submit" size="lg" variant="secondary" className="mt-2 shadow-none">
                 Sign in
               </Button>
             </form>
@@ -310,20 +279,18 @@ export default function LoginPage() {
                     key={itemRole}
                     type="button"
                     onClick={() => applyRole(itemRole)}
-                    className={`flex flex-col items-center gap-2 rounded-xl border-2 p-4 transition-all duration-200 ${
+                    className={`flex flex-col items-center gap-2 rounded-md border p-4 transition-all duration-200 ${
                       role === itemRole
-                        ? "border-violet-400 bg-violet-50"
+                        ? "border-zinc-900 bg-zinc-50"
                         : "border-zinc-200 bg-white hover:border-zinc-300"
                     }`}
                   >
-                    <div
-                      className={`p-2 rounded-lg bg-gradient-to-br ${roleColors[itemRole]} text-white`}
-                    >
+                    <div className={`p-2 rounded-md ${roleColors[itemRole]}`}>
                       {roleIcons[itemRole]}
                     </div>
                     <span
                       className={`text-xs font-bold uppercase tracking-wider ${
-                        role === itemRole ? "text-violet-700" : "text-zinc-600"
+                        role === itemRole ? "text-zinc-900" : "text-zinc-600"
                       }`}
                     >
                       {itemRole}
@@ -338,7 +305,7 @@ export default function LoginPage() {
           <aside className="flex flex-col gap-6">
             {/* Status Message */}
             <div
-              className={`flex items-start gap-3 rounded-xl border px-4 py-3 text-sm ${messageStyles[message.tone]}`}
+              className={`flex items-start gap-3 rounded-md border px-4 py-3 text-sm ${messageStyles[message.tone]}`}
             >
               {message.tone === "success" ? (
                 <Icons.Check />
@@ -360,10 +327,10 @@ export default function LoginPage() {
                 {credentialList.map((item) => (
                   <div
                     key={item.role}
-                    className="flex items-center gap-4 rounded-xl border border-zinc-100 bg-zinc-50 p-4 transition hover:border-zinc-200"
+                    className="flex items-center gap-4 rounded-md border border-zinc-200 bg-white p-4 transition hover:border-zinc-300"
                   >
                     <div
-                      className={`h-10 w-10 rounded-xl bg-gradient-to-br ${roleColors[item.role]} flex items-center justify-center text-white text-sm font-bold`}
+                      className={`h-10 w-10 rounded-md ${roleColors[item.role]} flex items-center justify-center text-sm font-bold`}
                     >
                       {item.name.charAt(0)}
                     </div>
@@ -382,19 +349,19 @@ export default function LoginPage() {
             </Card>
 
             {/* What Happens Next */}
-            <Card padding="lg" className="bg-gradient-to-br from-zinc-900 to-zinc-800 border-zinc-800">
-              <h3 className="text-lg font-bold text-white mb-4">What happens next</h3>
+            <Card padding="lg">
+              <h3 className="text-lg font-semibold text-zinc-900 mb-4">What happens next</h3>
               <ul className="space-y-3">
                 {[
                   { icon: Icons.ShoppingBag, text: "Buyer: live countdown and local bidding." },
-                  { icon: Icons.Store, text: "Seller: submit listings into the screening queue." },
-                  { icon: Icons.Shield, text: "Admin: approve listings and advance escrow cases." },
+                  { icon: Icons.Store, text: "Seller: submit listings for review." },
+                  { icon: Icons.Shield, text: "Admin: approve requests and track fulfillment." },
                 ].map((item) => (
                   <li
                     key={item.text}
-                    className="flex items-start gap-3 text-sm text-zinc-300"
+                    className="flex items-start gap-3 text-sm text-zinc-600"
                   >
-                    <span className="flex-shrink-0 p-1.5 rounded-lg bg-white/10 text-zinc-400">
+                    <span className="flex-shrink-0 p-1.5 rounded-md bg-zinc-100 text-zinc-500">
                       <item.icon />
                     </span>
                     {item.text}
