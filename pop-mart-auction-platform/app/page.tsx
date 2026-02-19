@@ -4,99 +4,53 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import {
   clearSession,
-  ensureAdminEscrow,
-  ensureAdminScreening,
-  ensureCustomerAuctions,
+  ensurePrototypeData,
+  getAllAuctions,
+  getEscrowCases,
   getMockCredentials,
-  getPendingListings,
   getSession,
-  resetPrototypeData,
+  getDisputes,
   type Session,
 } from "@/app/lib/storage";
 
-type LandingStats = {
-  auctions: number;
-  screeningItems: number;
+type Snapshot = {
+  liveAuctions: number;
   escrowCases: number;
+  openDisputes: number;
 };
 
-const EMPTY_STATS: LandingStats = {
-  auctions: 0,
-  screeningItems: 0,
+const EMPTY: Snapshot = {
+  liveAuctions: 0,
   escrowCases: 0,
+  openDisputes: 0,
 };
-
-function computeStats(): LandingStats {
-  if (typeof window === "undefined") {
-    return EMPTY_STATS;
-  }
-
-  const auctions = ensureCustomerAuctions();
-  const screening = ensureAdminScreening();
-  const escrow = ensureAdminEscrow();
-  const pendingListings = getPendingListings();
-
-  return {
-    auctions: auctions.length,
-    screeningItems: screening.length + pendingListings.length,
-    escrowCases: escrow.length,
-  };
-}
-
-const flows = [
-  {
-    title: "Buyer",
-    detail: "Browse approved auctions and place bids.",
-    href: "/customer",
-  },
-  {
-    title: "Seller",
-    detail: "Submit a listing for review.",
-    href: "/seller",
-  },
-  {
-    title: "Admin",
-    detail: "Approve requests and track fulfillment.",
-    href: "/admin",
-  },
-] as const;
 
 export default function HomePage() {
-  const [stats, setStats] = useState<LandingStats>(EMPTY_STATS);
+  const [snapshot, setSnapshot] = useState<Snapshot>(EMPTY);
   const [session, setSession] = useState<Session | null>(null);
 
-  const refreshAll = () => {
-    setStats(computeStats());
-    setSession(getSession());
-  };
-
-  const handleReset = () => {
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm("Reset demo data and timers? This clears bids, listings, and logs.")
-    ) {
-      return;
-    }
-    resetPrototypeData();
-    refreshAll();
-  };
-
   useEffect(() => {
-    const rafId = window.requestAnimationFrame(refreshAll);
+    ensurePrototypeData();
 
-    const onFocus = () => refreshAll();
-    const onStorage = (event: StorageEvent) => {
-      if (!event.key) return;
-      onFocus();
+    const refresh = () => {
+      const auctions = getAllAuctions();
+      const escrowCases = getEscrowCases();
+      const disputes = getDisputes();
+      setSnapshot({
+        liveAuctions: auctions.filter((item) => item.status === "live").length,
+        escrowCases: escrowCases.length,
+        openDisputes: disputes.filter((item) => item.status === "open").length,
+      });
+      setSession(getSession());
     };
 
-    window.addEventListener("focus", onFocus);
-    window.addEventListener("storage", onStorage);
+    refresh();
+    const timer = window.setInterval(refresh, 1500);
+    window.addEventListener("storage", refresh);
 
     return () => {
-      window.cancelAnimationFrame(rafId);
-      window.removeEventListener("focus", onFocus);
-      window.removeEventListener("storage", onStorage);
+      window.clearInterval(timer);
+      window.removeEventListener("storage", refresh);
     };
   }, []);
 
@@ -106,23 +60,13 @@ export default function HomePage() {
     <div className="min-h-screen bg-zinc-50 text-zinc-900">
       <header className="border-b border-zinc-200 bg-white">
         <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-6 py-5">
-          <Link href="/" className="flex items-center gap-3">
-            <span className="inline-flex h-10 w-10 items-center justify-center rounded-md bg-violet-600 text-sm font-bold text-white">
-              PM
-            </span>
-            <div>
-              <p className="text-sm font-semibold text-zinc-900">Pop Mart Auction</p>
-              <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Prototype</p>
-            </div>
-          </Link>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
+              Requirement-Locked Prototype
+            </p>
+            <h1 className="text-lg font-semibold text-zinc-900">Pop Mart Auction Platform</h1>
+          </div>
           <nav className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleReset}
-              className="rounded-md border border-rose-200 px-4 py-2 text-sm font-semibold text-rose-700 transition hover:border-rose-300 hover:bg-rose-50"
-            >
-              Reset demo
-            </button>
             <Link
               href="/login"
               className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-800 transition hover:border-zinc-400"
@@ -133,86 +77,86 @@ export default function HomePage() {
               href={sessionRoute}
               className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800"
             >
-              {session ? "Dashboard" : "Open"}
+              {session ? "Dashboard" : "Open Flow"}
             </Link>
-          </nav>
-        </div>
-      </header>
-
-      <main className="mx-auto flex w-full max-w-4xl flex-col gap-8 px-6 py-12">
-        <section className="rounded-md border border-zinc-200 bg-white p-8">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
-            Prototype
-          </p>
-          <h1 className="mt-2 text-4xl font-semibold text-zinc-900 sm:text-5xl">
-            Pop Mart Auction Platform
-          </h1>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-zinc-600">
-            Browse approved listings, place bids, and follow post-auction fulfillment.
-          </p>
-
-          <p className="mt-4 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
-            Auctions {stats.auctions} • Requests {stats.screeningItems} • Fulfillment {stats.escrowCases}
-          </p>
-
-          <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-            <Link
-              href="/login"
-              className="inline-flex items-center justify-center rounded-md bg-zinc-900 px-6 py-3 text-sm font-semibold text-white transition hover:bg-zinc-800"
-            >
-              Open login
-            </Link>
-            <Link
-              href={sessionRoute}
-              className="inline-flex items-center justify-center rounded-md border border-zinc-300 px-6 py-3 text-sm font-semibold text-zinc-800 transition hover:border-zinc-400"
-            >
-              {session ? "Continue" : "Preview flows"}
-            </Link>
-          </div>
-        </section>
-
-        {session ? (
-          <section className="flex flex-col gap-3 rounded-md border border-zinc-200 bg-white px-5 py-4 text-sm text-zinc-800 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="font-semibold">Signed in as {session.name}</p>
-              <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">{session.role}</p>
-            </div>
-            <div className="flex items-center gap-2">
-              <Link
-                href={sessionRoute}
-                className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800"
-              >
-                Go to dashboard
-              </Link>
+            {session ? (
               <button
                 type="button"
                 onClick={() => {
                   clearSession();
-                  refreshAll();
+                  setSession(null);
                 }}
                 className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-800 transition hover:border-zinc-400"
               >
                 Sign out
               </button>
+            ) : null}
+          </nav>
+        </div>
+      </header>
+
+      <main className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-6 py-10">
+        <section className="rounded-md border border-zinc-200 bg-white p-6">
+          <h2 className="text-2xl font-semibold text-zinc-900">Strict 1:1 Requirement Coverage</h2>
+          <p className="mt-2 text-sm text-zinc-600">
+            Buyer, Seller, and Admin flows include only the updated functional requirements with
+            mock data and local state.
+          </p>
+          <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="rounded-md border border-zinc-200 bg-zinc-50 px-4 py-3">
+              <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Live auctions</p>
+              <p className="mt-1 text-2xl font-semibold text-zinc-900">{snapshot.liveAuctions}</p>
             </div>
-          </section>
-        ) : null}
+            <div className="rounded-md border border-zinc-200 bg-zinc-50 px-4 py-3">
+              <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Escrow cases</p>
+              <p className="mt-1 text-2xl font-semibold text-zinc-900">{snapshot.escrowCases}</p>
+            </div>
+            <div className="rounded-md border border-zinc-200 bg-zinc-50 px-4 py-3">
+              <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Open disputes</p>
+              <p className="mt-1 text-2xl font-semibold text-zinc-900">{snapshot.openDisputes}</p>
+            </div>
+          </div>
+        </section>
 
         <section className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          {flows.map((flow) => (
-            <article key={flow.title} className="rounded-md border border-zinc-200 bg-white p-5">
-              <h2 className="text-base font-semibold text-zinc-900">{flow.title}</h2>
-              <p className="mt-2 text-sm text-zinc-600">{flow.detail}</p>
-              <div className="mt-4">
-                <Link
-                  href={flow.href}
-                  className="inline-flex items-center rounded-md border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-800 transition hover:border-zinc-400"
-                >
-                  Open {flow.title}
-                </Link>
-              </div>
-            </article>
-          ))}
+          <article className="rounded-md border border-zinc-200 bg-white p-5">
+            <h3 className="text-base font-semibold text-zinc-900">Buyer</h3>
+            <p className="mt-2 text-sm text-zinc-600">
+              Realtime bids, outbid notifications, payment, refund, and shipment tracking.
+            </p>
+            <Link
+              href="/customer"
+              className="mt-4 inline-flex rounded-md border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-800 transition hover:border-zinc-400"
+            >
+              Open Buyer
+            </Link>
+          </article>
+
+          <article className="rounded-md border border-zinc-200 bg-white p-5">
+            <h3 className="text-base font-semibold text-zinc-900">Seller</h3>
+            <p className="mt-2 text-sm text-zinc-600">
+              Duration-limited listing, sold alerts, verification tracking, and fee deductions.
+            </p>
+            <Link
+              href="/seller"
+              className="mt-4 inline-flex rounded-md border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-800 transition hover:border-zinc-400"
+            >
+              Open Seller
+            </Link>
+          </article>
+
+          <article className="rounded-md border border-zinc-200 bg-white p-5">
+            <h3 className="text-base font-semibold text-zinc-900">Admin</h3>
+            <p className="mt-2 text-sm text-zinc-600">
+              Escrow control, verification workflow, monitoring, disputes, moderation, reports.
+            </p>
+            <Link
+              href="/admin"
+              className="mt-4 inline-flex rounded-md border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-800 transition hover:border-zinc-400"
+            >
+              Open Admin
+            </Link>
+          </article>
         </section>
       </main>
     </div>

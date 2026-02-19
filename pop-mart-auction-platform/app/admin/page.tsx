@@ -1,383 +1,202 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatThb } from "@/app/lib/format";
 import {
-  appendAdminLog,
+  advanceEscrowWorkflow,
+  closeAuctionAndProcessPayment,
   clearSession,
-  ensureAdminEscrow,
-  ensureAdminScreening,
-  ensureCustomerAuctions,
-  getAdminEscrow,
-  getAdminLog,
-  getAdminScreening,
-  getCustomerAuctions,
+  ensurePrototypeData,
+  getAllAuctions,
+  getAllUsers,
+  getBidActivity,
+  getDisputes,
+  getEscrowCases,
   getMockCredentials,
-  getPendingListings,
+  getReportsSummary,
   getSession,
+  getTransactions,
   resetPrototypeData,
-  setAdminEscrow,
-  setAdminScreening,
-  setCustomerAuctions,
-  setPendingListings,
-  STORAGE_KEYS,
+  resolveDispute,
+  runMockCompetingBidTick,
+  runPaymentRetryNow,
+  setUserBalance,
+  setUserStatus,
+  settleDueAuctions,
+  type Auction,
+  type BidActivityEvent,
+  type DisputeCase,
+  type EscrowCase,
+  type ReportsSummary,
   type Session,
+  type TransactionRecord,
+  type UserAccount,
 } from "@/app/lib/storage";
-import type { AdminEscrowItem, AdminScreeningItem } from "@/app/mock/admin-data";
-import type { CustomerAuction } from "@/app/mock/customer-data";
-import type { SellerListing } from "@/app/lib/storage";
 
-type AdminTab = "screening" | "payment";
+type AdminTab = "monitor" | "verification" | "disputes" | "users" | "reports";
 
-type QueueItem = {
-  source: "admin" | "pending";
-  id: string;
-  title: string;
-  series: string;
-  seller: string;
-  startingPriceThb: number;
-  durationHours: number;
-  submittedLabel: string;
-  risk: "low" | "medium" | "high";
+type UiMessage = {
+  tone: "neutral" | "success" | "warning";
+  text: string;
 };
 
-const ESCROW_FLOW: AdminEscrowItem["status"][] = [
-  "payment secured",
-  "picked up from seller",
-  "authenticity check",
-  "delivered to buyer",
-];
-
-const ESCROW_NOTE: Record<AdminEscrowItem["status"], string> = {
-  "payment secured": "Buyer payment confirmed and secured.",
-  "picked up from seller": "Courier confirmed pickup from seller.",
-  "authenticity check": "Final authenticity check in progress.",
-  "delivered to buyer": "Delivered to buyer — ready for payout.",
+const EMPTY_REPORT: ReportsSummary = {
+  transactionCount: 0,
+  grossVolumeThb: 0,
+  serviceFeeRevenueThb: 0,
+  refundsThb: 0,
+  payoutsThb: 0,
+  failedPaymentCount: 0,
+  openDisputeCount: 0,
+  heldEscrowCount: 0,
 };
-
-function makeAuctionFromQueueItem(item: QueueItem, nowMs: number): CustomerAuction {
-  return {
-    id: `auction-${item.id}`,
-    title: item.title,
-    series: item.series,
-    seller: item.seller,
-    currentBidThb: item.startingPriceThb,
-    minIncrementThb: 100,
-    bids: 0,
-    endsAtMs: nowMs + item.durationHours * 60 * 60 * 1000,
-  };
-}
-
-function limitAuctions(nextAuction: CustomerAuction, existing: CustomerAuction[]) {
-  const combined = [nextAuction, ...existing];
-  combined.sort((a, b) => a.endsAtMs - b.endsAtMs);
-  return combined.slice(0, 2);
-}
-
-function riskTone(risk: QueueItem["risk"]) {
-  if (risk === "high") return "border-rose-300 bg-rose-50 text-rose-800";
-  if (risk === "medium") return "border-amber-300 bg-amber-50 text-amber-800";
-  return "border-emerald-300 bg-emerald-50 text-emerald-800";
-}
-
-function escrowTone(status: AdminEscrowItem["status"]) {
-  if (status === "authenticity check") return "border-sky-300 bg-sky-50 text-sky-800";
-  if (status === "picked up from seller") return "border-amber-300 bg-amber-50 text-amber-800";
-  if (status === "delivered to buyer") return "border-zinc-400 bg-zinc-100 text-zinc-800";
-  return "border-emerald-300 bg-emerald-50 text-emerald-800";
-}
-
-function toQueueItemFromAdmin(item: AdminScreeningItem): QueueItem {
-  return {
-    source: "admin",
-    id: item.id,
-    title: item.title,
-    series: "Reviewed",
-    seller: item.seller,
-    startingPriceThb: item.startingPriceThb,
-    durationHours: item.durationHours,
-    submittedLabel: item.submittedLabel,
-    risk: item.risk,
-  };
-}
-
-function toQueueItemFromPending(item: SellerListing): QueueItem {
-  return {
-    source: "pending",
-    id: item.id,
-    title: item.title,
-    series: item.series,
-    seller: item.seller,
-    startingPriceThb: item.startingPriceThb,
-    durationHours: item.durationHours,
-    submittedLabel: new Date(item.submittedAtMs).toLocaleTimeString(),
-    risk: "medium",
-  };
-}
 
 export default function AdminPage() {
-  const [screening, setScreening] = useState<AdminScreeningItem[]>([]);
-  const [pendingListings, setPending] = useState<SellerListing[]>([]);
-  const [escrow, setEscrow] = useState<AdminEscrowItem[]>([]);
-  const [, setAuctions] = useState<CustomerAuction[]>([]);
-  const [, setAdminLog] = useState<string[]>([]);
-  const [nowMs, setNowMs] = useState(0);
   const [session, setSession] = useState<Session | null>(null);
-  const [queueFilter, setQueueFilter] = useState<"all" | "seller" | "platform">("all");
-  const [activeTab, setActiveTab] = useState<AdminTab>("screening");
-  const [selectedQueueId, setSelectedQueueId] = useState<string | null>(null);
-  const [selectedEscrowId, setSelectedEscrowId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<AdminTab>("monitor");
+  const [auctions, setAuctions] = useState<Auction[]>([]);
+  const [events, setEvents] = useState<BidActivityEvent[]>([]);
+  const [escrowCases, setEscrowCases] = useState<EscrowCase[]>([]);
+  const [disputes, setDisputes] = useState<DisputeCase[]>([]);
+  const [users, setUsers] = useState<UserAccount[]>([]);
+  const [transactions, setTransactions] = useState<TransactionRecord[]>([]);
+  const [report, setReport] = useState<ReportsSummary>(EMPTY_REPORT);
+  const [resolutionNote, setResolutionNote] = useState<Record<string, string>>({});
+  const [message, setMessage] = useState<UiMessage>({
+    tone: "neutral",
+    text: "Admin controls are active.",
+  });
 
-  const handleReset = () => {
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm("Reset demo data and timers? This clears bids, listings, and logs.")
-    ) {
-      return;
-    }
-    resetPrototypeData();
-    const nextScreening = ensureAdminScreening();
-    const nextEscrow = ensureAdminEscrow();
-    const nextAuctions = ensureCustomerAuctions();
-    const nextPending = getPendingListings();
-    const nextLog = getAdminLog();
-    const nextSession = getSession();
-    const nextQueue = [
-      ...nextPending.map(toQueueItemFromPending),
-      ...nextScreening.map(toQueueItemFromAdmin),
-    ];
-
-    setScreening(nextScreening);
-    setEscrow(nextEscrow);
-    setAuctions(nextAuctions);
-    setPending(nextPending);
-    setAdminLog(nextLog);
-    setNowMs(Date.now());
-    setSession(nextSession);
-    setSelectedQueueId(nextQueue[0]?.id ?? null);
-    setSelectedEscrowId(nextEscrow[0]?.id ?? null);
-  };
+  const refreshData = useCallback(() => {
+    settleDueAuctions();
+    setSession(getSession());
+    setAuctions(getAllAuctions());
+    setEvents(getBidActivity());
+    setEscrowCases(getEscrowCases());
+    setDisputes(getDisputes());
+    setUsers(getAllUsers());
+    setTransactions(getTransactions());
+    setReport(getReportsSummary());
+  }, []);
 
   useEffect(() => {
-    const initialScreening = ensureAdminScreening();
-    const initialEscrow = ensureAdminEscrow();
-    const initialAuctions = ensureCustomerAuctions();
-    const initialPending = getPendingListings();
-    const initialLog = getAdminLog();
-    const initialSession = getSession();
-
-    const initialQueue = [
-      ...initialPending.map(toQueueItemFromPending),
-      ...initialScreening.map(toQueueItemFromAdmin),
-    ];
-
-    const rafId = window.requestAnimationFrame(() => {
-      setScreening(initialScreening);
-      setEscrow(initialEscrow);
-      setAuctions(initialAuctions);
-      setPending(initialPending);
-      setAdminLog(initialLog);
-      setNowMs(Date.now());
-      setSession(initialSession);
-      setSelectedQueueId(initialQueue[0]?.id ?? null);
-      setSelectedEscrowId(initialEscrow[0]?.id ?? null);
-    });
-
-    const timer = window.setInterval(() => {
-      setNowMs(Date.now());
-    }, 1000);
+    ensurePrototypeData();
+    const rafId = window.requestAnimationFrame(refreshData);
+    const timer = window.setInterval(refreshData, 1200);
+    window.addEventListener("storage", refreshData);
 
     return () => {
       window.cancelAnimationFrame(rafId);
       window.clearInterval(timer);
+      window.removeEventListener("storage", refreshData);
     };
-  }, []);
+  }, [refreshData]);
 
-  useEffect(() => {
-    const handleStorage = (event: StorageEvent) => {
-      if (!event.key) return;
-      if (event.key === STORAGE_KEYS.adminScreening) {
-        setScreening(getAdminScreening());
-      }
-      if (event.key === STORAGE_KEYS.pendingListings) {
-        setPending(getPendingListings());
-      }
-      if (event.key === STORAGE_KEYS.adminEscrow) {
-        setEscrow(getAdminEscrow());
-      }
-      if (event.key === STORAGE_KEYS.customerAuctions) {
-        setAuctions(getCustomerAuctions());
-      }
-      if (event.key === STORAGE_KEYS.adminLog) {
-        setAdminLog(getAdminLog());
-      }
-      if (event.key === STORAGE_KEYS.session) {
-        setSession(getSession());
-      }
-    };
+  const userMap = useMemo(() => {
+    return new Map(users.map((item) => [item.id, item.name]));
+  }, [users]);
 
-    window.addEventListener("storage", handleStorage);
-    return () => window.removeEventListener("storage", handleStorage);
-  }, []);
+  const liveAuctions = auctions.filter((item) => item.status === "live");
+  const sortedAuctions = [...auctions].sort((a, b) => b.createdAtMs - a.createdAtMs);
+  const demoBuyer = users.find((item) => item.email.toLowerCase() === "buyer@popmart.demo") ?? null;
 
-  const queue: QueueItem[] = useMemo(() => {
-    const fromAdmin = screening.map(toQueueItemFromAdmin);
-    const fromPending = pendingListings.map(toQueueItemFromPending);
-    return [...fromPending, ...fromAdmin];
-  }, [pendingListings, screening]);
+  function updateMessage(tone: UiMessage["tone"], text: string) {
+    setMessage({ tone, text });
+  }
 
-  const filteredQueue = useMemo(() => {
-    if (queueFilter === "seller") {
-      return queue.filter((item) => item.source === "pending");
+  function handleEscrowAction(
+    caseId: string,
+    action: "pickup" | "verify_pass" | "verify_fail" | "ship_to_buyer" | "mark_delivered"
+  ) {
+    const result = advanceEscrowWorkflow(caseId, action);
+    updateMessage(result.ok ? "success" : "warning", result.message);
+    refreshData();
+  }
+
+  function handleResolve(
+    disputeId: string,
+    status: "resolved_refund" | "resolved_release" | "rejected"
+  ) {
+    const note = (resolutionNote[disputeId] ?? "").trim() || "Resolved by admin.";
+    const result = resolveDispute(disputeId, { status, note });
+    updateMessage(result.ok ? "success" : "warning", result.message);
+    refreshData();
+  }
+
+  function handleUserStatus(userId: string, status: "active" | "suspended" | "banned") {
+    const result = setUserStatus(userId, status, "Updated by admin moderation.");
+    updateMessage(result.ok ? "success" : "warning", result.message);
+    refreshData();
+  }
+
+  function handleSimulatedBid(auctionId: string) {
+    const result = runMockCompetingBidTick(auctionId);
+    updateMessage(result.ok ? "success" : "warning", result.message);
+    refreshData();
+  }
+
+  function handleCloseAndProcess(auctionId: string) {
+    const result = closeAuctionAndProcessPayment(auctionId);
+    updateMessage(result.ok ? "success" : "warning", result.message);
+    refreshData();
+  }
+
+  function handleRetryNow(auctionId: string) {
+    const result = runPaymentRetryNow(auctionId);
+    updateMessage(result.ok ? "success" : "warning", result.message);
+    refreshData();
+  }
+
+  function handleSetDemoBuyerFunds(balanceThb: number) {
+    if (!demoBuyer) {
+      updateMessage("warning", "Demo buyer account not found.");
+      return;
     }
-    if (queueFilter === "platform") {
-      return queue.filter((item) => item.source === "admin");
-    }
-    return queue;
-  }, [queue, queueFilter]);
 
-  const heldThb = useMemo(
-    () => escrow.reduce((sum, item) => sum + item.amountThb, 0),
-    [escrow]
-  );
+    const result = setUserBalance(demoBuyer.id, balanceThb);
+    updateMessage(result.ok ? "success" : "warning", result.message);
+    refreshData();
+  }
+
+  function handleResetDemo() {
+    resetPrototypeData();
+    updateMessage("success", "Demo data reset.");
+    refreshData();
+  }
+
+  const messageToneClass =
+    message.tone === "success"
+      ? "border-emerald-300 bg-emerald-50 text-emerald-800"
+      : message.tone === "warning"
+        ? "border-amber-300 bg-amber-50 text-amber-800"
+        : "border-zinc-300 bg-zinc-50 text-zinc-700";
 
   const sessionRoute = session ? getMockCredentials(session.role).redirectTo : "/login";
-
-  const selectedQueueItem =
-    filteredQueue.find((item) => item.id === selectedQueueId) ?? filteredQueue[0] ?? null;
-  const selectedEscrowItem =
-    escrow.find((item) => item.id === selectedEscrowId) ?? escrow[0] ?? null;
-
-  useEffect(() => {
-    if (filteredQueue.length === 0) {
-      if (selectedQueueId === null) return;
-      const rafId = window.requestAnimationFrame(() => setSelectedQueueId(null));
-      return () => window.cancelAnimationFrame(rafId);
-    }
-    if (selectedQueueId && filteredQueue.some((item) => item.id === selectedQueueId)) {
-      return;
-    }
-    const nextId = filteredQueue[0].id;
-    const rafId = window.requestAnimationFrame(() => setSelectedQueueId(nextId));
-    return () => window.cancelAnimationFrame(rafId);
-  }, [filteredQueue, selectedQueueId]);
-
-  useEffect(() => {
-    if (escrow.length === 0) {
-      if (selectedEscrowId === null) return;
-      const rafId = window.requestAnimationFrame(() => setSelectedEscrowId(null));
-      return () => window.cancelAnimationFrame(rafId);
-    }
-    if (selectedEscrowId && escrow.some((item) => item.id === selectedEscrowId)) {
-      return;
-    }
-    const nextId = escrow[0].id;
-    const rafId = window.requestAnimationFrame(() => setSelectedEscrowId(nextId));
-    return () => window.cancelAnimationFrame(rafId);
-  }, [escrow, selectedEscrowId]);
-
-  function approveItem(item: QueueItem) {
-    if (nowMs === 0) {
-      return;
-    }
-    const newAuction = makeAuctionFromQueueItem(item, nowMs);
-
-    const existingAuctions = ensureCustomerAuctions();
-    const nextAuctions = limitAuctions(newAuction, existingAuctions);
-    setCustomerAuctions(nextAuctions);
-    setAuctions(nextAuctions);
-
-    if (item.source === "pending") {
-      const nextPending = pendingListings.filter((entry) => entry.id !== item.id);
-      setPendingListings(nextPending);
-      setPending(nextPending);
-      const nextLog = appendAdminLog(`Approved seller listing: ${item.title}`);
-      setAdminLog(nextLog);
-      return;
-    }
-
-    const nextScreening = screening.filter((entry) => entry.id !== item.id);
-    setAdminScreening(nextScreening);
-    setScreening(nextScreening);
-    const nextLog = appendAdminLog(`Approved screened item: ${item.title}`);
-    setAdminLog(nextLog);
-  }
-
-  function rejectItem(item: QueueItem) {
-    if (item.source === "pending") {
-      const nextPending = pendingListings.filter((entry) => entry.id !== item.id);
-      setPendingListings(nextPending);
-      setPending(nextPending);
-      const nextLog = appendAdminLog(`Rejected seller listing: ${item.title}`);
-      setAdminLog(nextLog);
-      return;
-    }
-
-    const nextScreening = screening.filter((entry) => entry.id !== item.id);
-    setAdminScreening(nextScreening);
-    setScreening(nextScreening);
-    const nextLog = appendAdminLog(`Rejected screened item: ${item.title}`);
-    setAdminLog(nextLog);
-  }
-
-  function advanceEscrow(id: string) {
-    const nextEscrow = escrow.map((item) => {
-      if (item.id !== id) return item;
-      const currentIndex = ESCROW_FLOW.indexOf(item.status);
-      const nextStatus = ESCROW_FLOW[Math.min(currentIndex + 1, ESCROW_FLOW.length - 1)];
-      return {
-        ...item,
-        status: nextStatus,
-        note: ESCROW_NOTE[nextStatus],
-      };
-    });
-
-    setAdminEscrow(nextEscrow);
-    setEscrow(nextEscrow);
-    const target = nextEscrow.find((item) => item.id === id);
-    if (target) {
-      const nextLog = appendAdminLog(`Fulfillment updated: ${target.title} → ${target.status}`);
-      setAdminLog(nextLog);
-    }
-  }
-
-  const selectedEscrowIndex = selectedEscrowItem
-    ? ESCROW_FLOW.indexOf(selectedEscrowItem.status)
-    : -1;
 
   return (
     <div className="min-h-screen bg-zinc-50 text-zinc-900">
       <header className="border-b border-zinc-200 bg-white">
-        <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-6 py-5">
+        <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-5">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
-              Admin View
+              Admin Dashboard
             </p>
-            <h1 className="text-lg font-semibold text-zinc-900">Operations</h1>
+            <h1 className="text-lg font-semibold text-zinc-900">Escrow, Moderation, and Reports</h1>
           </div>
           <nav className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleReset}
-              className="rounded-md border border-rose-200 px-4 py-2 text-sm font-semibold text-rose-700 transition hover:border-rose-300 hover:bg-rose-50"
-            >
-              Reset demo
-            </button>
             <Link
               href="/"
               className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-800 transition hover:border-zinc-400"
             >
               Landing
             </Link>
-            {!session ? (
-              <Link
-                href="/login"
-                className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-800 transition hover:border-zinc-400"
-              >
-                Login
-              </Link>
-            ) : null}
+            <Link
+              href={sessionRoute}
+              className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-800 transition hover:border-zinc-400"
+            >
+              Dashboard
+            </Link>
             {session ? (
               <button
                 type="button"
@@ -389,357 +208,411 @@ export default function AdminPage() {
               >
                 Sign out
               </button>
-            ) : null}
+            ) : (
+              <Link
+                href="/login"
+                className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-800 transition hover:border-zinc-400"
+              >
+                Login
+              </Link>
+            )}
           </nav>
         </div>
       </header>
 
-      <main className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-6 py-10">
-        <section className="flex flex-col gap-2">
-          <h2 className="text-3xl font-semibold text-zinc-900 sm:text-4xl">
-            Review requests, then track fulfillment.
-          </h2>
-          <p className="max-w-3xl text-sm leading-6 text-zinc-600">
-            The list stays lean. Details appear when you select a card.
-          </p>
-        </section>
-
-        <section className="flex flex-col gap-3 rounded-md border border-zinc-200 bg-white px-5 py-4 text-sm text-zinc-700 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="font-semibold text-zinc-900">Moderate live auctions</p>
-            <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">
-              Open the auction list to end, extend, or remove listings.
-            </p>
-          </div>
-          <Link
-            href="/customer"
-            className="rounded-md border border-zinc-300 bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-800 transition hover:border-zinc-400"
-          >
-            View auctions
-          </Link>
-        </section>
-
-        {session ? (
-          <section className="flex flex-col gap-3 rounded-md border border-zinc-200 bg-white px-5 py-4 text-sm text-zinc-800 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="font-semibold">Signed in as {session.name}</p>
-              <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">
-                {session.role}
-              </p>
-            </div>
-            <Link
-              href={sessionRoute}
-              className="rounded-md border border-zinc-300 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-800 transition hover:border-zinc-400"
-            >
-              Dashboard
-            </Link>
-          </section>
-        ) : null}
+      <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-6 py-10">
+        <section className={`rounded-md border px-5 py-4 text-sm ${messageToneClass}`}>{message.text}</section>
 
         <section className="flex flex-wrap gap-2">
           {[
-            { key: "screening" as const, label: "Requests", count: queue.length },
-            { key: "payment" as const, label: "Fulfillment", count: escrow.length },
+            { key: "monitor" as const, label: "Live Monitoring" },
+            { key: "verification" as const, label: "Escrow & Verification" },
+            { key: "disputes" as const, label: "Disputes" },
+            { key: "users" as const, label: "User Moderation" },
+            { key: "reports" as const, label: "Reports" },
           ].map((tab) => (
             <button
               key={tab.key}
               type="button"
               onClick={() => setActiveTab(tab.key)}
-              className={`rounded-md border px-5 py-2 text-xs font-semibold uppercase tracking-[0.2em] transition ${
+              className={`rounded-md border px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] transition ${
                 activeTab === tab.key
-                  ? "border-violet-300 bg-violet-50 text-violet-700"
+                  ? "border-zinc-900 bg-zinc-900 text-white"
                   : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-400"
               }`}
             >
-              {tab.label} ({tab.count})
+              {tab.label}
             </button>
           ))}
         </section>
 
-        {activeTab === "screening" ? (
-          <section className="rounded-md border border-zinc-200 bg-white p-6">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-              <div>
-                <h3 className="text-lg font-semibold text-zinc-900">Auction requests</h3>
-                <p className="mt-1 text-sm text-zinc-600">
-                  Select a request to review its details.
-                </p>
+        {activeTab === "monitor" ? (
+          <section className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_1fr]">
+            <section className="rounded-md border border-zinc-200 bg-white p-5">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-zinc-900">Demo Controls</h2>
+                <span className="rounded-md border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-zinc-700">
+                  Live {liveAuctions.length}
+                </span>
               </div>
-              <div className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-600">
-                {filteredQueue.length}
-              </div>
-            </div>
+              <p className="mt-1 text-sm text-zinc-600">
+                Use buttons to run demo scenarios without console commands.
+              </p>
 
-            <div className="mt-4 flex flex-wrap gap-2">
-              {[
-                { key: "all", label: "All" },
-                { key: "seller", label: "Seller" },
-                { key: "platform", label: "Platform" },
-              ].map((filter) => (
+              <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
                 <button
-                  key={filter.key}
                   type="button"
-                  onClick={() => setQueueFilter(filter.key as typeof queueFilter)}
-                  className={`rounded-md border px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] transition ${
-                    queueFilter === filter.key
-                      ? "border-violet-300 bg-violet-50 text-violet-700"
-                      : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-400"
-                  }`}
+                  onClick={() => handleSetDemoBuyerFunds(10)}
+                  disabled={!demoBuyer}
+                  className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-amber-800 transition hover:border-amber-400 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {filter.label}
+                  Low Funds
                 </button>
-              ))}
-            </div>
+                <button
+                  type="button"
+                  onClick={() => handleSetDemoBuyerFunds(22000)}
+                  disabled={!demoBuyer}
+                  className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-800 transition hover:border-zinc-400 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Restore Funds
+                </button>
+                <button
+                  type="button"
+                  onClick={handleResetDemo}
+                  className="rounded-md border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-rose-700 transition hover:border-rose-400"
+                >
+                  Reset Demo
+                </button>
+              </div>
 
-            {filteredQueue.length === 0 ? (
-              <p className="mt-6 text-sm text-zinc-600">No items to review.</p>
-            ) : (
-              <div className="mt-6 grid grid-cols-1 gap-5 lg:grid-cols-[0.95fr_1.05fr]">
-                <div className="flex flex-col gap-3">
-                  {filteredQueue.map((item) => {
-                    const isSelected = item.id === selectedQueueItem?.id;
-
-                    return (
-                      <button
-                        key={`${item.source}-${item.id}`}
-                        type="button"
-                        onClick={() => setSelectedQueueId(item.id)}
-                        className={`rounded-md border p-4 text-left transition ${
-                          isSelected
-                            ? "border-zinc-900 bg-zinc-900 text-white"
-                            : "border-zinc-200 bg-zinc-50 text-zinc-900 hover:border-zinc-300"
-                        }`}
-                      >
-                        <p className="text-base font-semibold">{item.title}</p>
-                        <p
-                          className={`mt-1 text-xs uppercase tracking-[0.2em] ${
-                            isSelected ? "text-white/70" : "text-zinc-500"
-                          }`}
-                        >
-                          {item.series} • {item.seller}
-                        </p>
-                        <div className="mt-3 flex items-center justify-between">
-                          <div>
-                            <p
-                              className={`text-[11px] uppercase tracking-[0.2em] ${
-                                isSelected ? "text-white/70" : "text-zinc-500"
-                              }`}
-                            >
-                              Start
+              <div className="mt-4 flex max-h-[30rem] flex-col gap-2 overflow-y-auto">
+                {sortedAuctions.length === 0 ? (
+                  <p className="text-sm text-zinc-600">No auctions available.</p>
+                ) : (
+                  sortedAuctions.map((item) => (
+                    <div key={item.id} className="rounded-md border border-zinc-200 bg-zinc-50 p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="font-semibold text-zinc-900">{item.title}</p>
+                          <p className="mt-1 text-xs uppercase tracking-[0.2em] text-zinc-500">
+                            {item.status.replaceAll("_", " ")} • Current {formatThb(item.currentBidThb)}
+                          </p>
+                          {item.paymentRetryDueAtMs ? (
+                            <p className="mt-1 text-xs text-zinc-600">
+                              Retry due {new Date(item.paymentRetryDueAtMs).toLocaleTimeString()}
                             </p>
-                            <p className="mt-1 text-lg font-semibold">
-                              {formatThb(item.startingPriceThb)}
-                            </p>
-                          </div>
-                          <span
-                            className={`rounded-md border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${
-                              isSelected
-                                ? "border-white/30 bg-white/10 text-white"
-                                : riskTone(item.risk)
-                            }`}
-                          >
-                            {item.risk}
-                          </span>
+                          ) : null}
                         </div>
-                      </button>
-                    );
-                  })}
-                </div>
+                        <span className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-700">
+                          bids {item.bidsCount}
+                        </span>
+                      </div>
 
-                {selectedQueueItem ? (
-                  <div className="rounded-md border border-zinc-200 bg-zinc-50 p-5">
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                        <button
+                          type="button"
+                          onClick={() => handleSimulatedBid(item.id)}
+                          disabled={item.status !== "live"}
+                          className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-800 transition hover:border-zinc-400 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          Simulate Bid
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleCloseAndProcess(item.id)}
+                          disabled={item.status === "paid_escrowed" || item.status === "payment_failed"}
+                          className="rounded-md border border-zinc-900 bg-zinc-900 px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
+                        >
+                          Close + Process
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRetryNow(item.id)}
+                          disabled={!(item.status === "ended" && item.paymentAttempts > 0)}
+                          className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-800 transition hover:border-zinc-400 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          Retry Now
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </section>
+
+            <section className="rounded-md border border-zinc-200 bg-white p-5">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-zinc-900">Bid Activity Stream</h2>
+                <span className="rounded-md border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-zinc-700">
+                  {events.length}
+                </span>
+              </div>
+              <div className="mt-3 flex max-h-80 flex-col gap-2 overflow-y-auto">
+                {events.length === 0 ? (
+                  <p className="text-sm text-zinc-600">No bid events yet.</p>
+                ) : (
+                  events.slice(0, 20).map((event) => (
+                    <div key={event.id} className="rounded-md border border-zinc-200 bg-zinc-50 p-3 text-sm">
+                      <p className="font-semibold text-zinc-900">
+                        {event.bidderName} bid {formatThb(event.amountThb)}
+                      </p>
+                      <p className="mt-1 text-xs text-zinc-600">
+                        {event.mode} • {new Date(event.createdAtMs).toLocaleTimeString()}
+                      </p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </section>
+          </section>
+        ) : null}
+
+        {activeTab === "verification" ? (
+          <section className="rounded-md border border-zinc-200 bg-white p-5">
+            <h2 className="text-lg font-semibold text-zinc-900">Escrow & Verification Workflow</h2>
+            <p className="mt-1 text-sm text-zinc-600">
+              Payment remains in escrow until verification passes and delivery completes.
+            </p>
+
+            <div className="mt-4 flex flex-col gap-3">
+              {escrowCases.length === 0 ? (
+                <p className="text-sm text-zinc-600">No escrow cases yet.</p>
+              ) : (
+                escrowCases.map((item) => (
+                  <div key={item.id} className="rounded-md border border-zinc-200 bg-zinc-50 p-4">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                       <div>
-                        <p className="text-lg font-semibold text-zinc-900">{selectedQueueItem.title}</p>
+                        <p className="font-semibold text-zinc-900">{item.title}</p>
                         <p className="mt-1 text-xs uppercase tracking-[0.2em] text-zinc-500">
-                          {selectedQueueItem.series} • {selectedQueueItem.seller}
+                          Buyer {userMap.get(item.buyerId) ?? item.buyerId} • Seller {userMap.get(item.sellerId) ?? item.sellerId}
                         </p>
                       </div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="rounded-md border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-700">
-                          {selectedQueueItem.source === "pending" ? "seller" : "platform"}
-                        </span>
-                        <span
-                          className={`rounded-md border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${riskTone(
-                            selectedQueueItem.risk
-                          )}`}
-                        >
-                          {selectedQueueItem.risk}
-                        </span>
-                      </div>
+                      <p className="text-sm text-zinc-700">Escrow {item.escrowStatus}</p>
                     </div>
 
-                    <div className="mt-4 grid grid-cols-2 gap-3">
-                      <div className="rounded-md border border-zinc-200 bg-white px-4 py-3">
-                        <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Start price</p>
-                        <p className="mt-1 text-xl font-semibold text-zinc-900">
-                          {formatThb(selectedQueueItem.startingPriceThb)}
-                        </p>
-                      </div>
-                      <div className="rounded-md border border-zinc-200 bg-white px-4 py-3">
-                        <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Duration</p>
-                        <p className="mt-1 text-xl font-semibold text-zinc-900">
-                          {selectedQueueItem.durationHours}h
-                        </p>
-                      </div>
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-sm text-zinc-700 sm:grid-cols-4">
+                      <div className="rounded-md border border-zinc-200 bg-white px-3 py-2">Verification: {item.verificationStatus}</div>
+                      <div className="rounded-md border border-zinc-200 bg-white px-3 py-2">Shipment: {item.shipmentStatus}</div>
+                      <div className="rounded-md border border-zinc-200 bg-white px-3 py-2">Payout: {item.payoutStatus}</div>
+                      <div className="rounded-md border border-zinc-200 bg-white px-3 py-2">Net: {formatThb(item.netPayoutThb)}</div>
                     </div>
 
-                    <div className="mt-3 rounded-md border border-zinc-200 bg-white px-4 py-3 text-xs uppercase tracking-[0.2em] text-zinc-500">
-                      Submitted {selectedQueueItem.submittedLabel}
-                    </div>
-
-                    <div className="mt-5 grid grid-cols-2 gap-3">
+                    <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
                       <button
                         type="button"
-                        onClick={() => approveItem(selectedQueueItem)}
-                        disabled={nowMs === 0}
-                        className="rounded-md bg-zinc-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
+                        onClick={() => handleEscrowAction(item.id, "pickup")}
+                        className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-800 transition hover:border-zinc-400"
                       >
-                        Approve request
+                        Pickup
                       </button>
                       <button
                         type="button"
-                        onClick={() => rejectItem(selectedQueueItem)}
-                        className="rounded-md border border-zinc-300 px-4 py-3 text-sm font-semibold text-zinc-900 transition hover:border-zinc-400"
+                        onClick={() => handleEscrowAction(item.id, "verify_pass")}
+                        className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-800 transition hover:border-zinc-400"
                       >
-                        Reject request
+                        Verify Pass
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleEscrowAction(item.id, "verify_fail")}
+                        className="rounded-md border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-rose-700 transition hover:border-rose-400"
+                      >
+                        Verify Fail
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleEscrowAction(item.id, "ship_to_buyer")}
+                        className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-800 transition hover:border-zinc-400"
+                      >
+                        Ship
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleEscrowAction(item.id, "mark_delivered")}
+                        className="rounded-md border border-zinc-900 bg-zinc-900 px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-white transition hover:bg-zinc-800"
+                      >
+                        Delivered
                       </button>
                     </div>
-
-                    <p className="mt-3 text-xs text-zinc-600">
-                      Approval publishes the auction and keeps the buyer view capped at two items.
-                    </p>
                   </div>
-                ) : null}
-              </div>
-            )}
+                ))
+              )}
+            </div>
           </section>
-        ) : (
-          <section className="rounded-md border border-zinc-200 bg-white p-6">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-              <div>
-                <h3 className="text-lg font-semibold text-zinc-900">Fulfillment status</h3>
-                <p className="mt-1 text-sm text-zinc-600">
-                  Select a case to view its delivery status.
-                </p>
+        ) : null}
+
+        {activeTab === "disputes" ? (
+          <section className="rounded-md border border-zinc-200 bg-white p-5">
+            <h2 className="text-lg font-semibold text-zinc-900">Dispute Resolution</h2>
+
+            <div className="mt-4 flex flex-col gap-3">
+              {disputes.length === 0 ? (
+                <p className="text-sm text-zinc-600">No disputes opened.</p>
+              ) : (
+                disputes.map((item) => (
+                  <div key={item.id} className="rounded-md border border-zinc-200 bg-zinc-50 p-4">
+                    <p className="font-semibold text-zinc-900">Dispute {item.id.slice(-8)}</p>
+                    <p className="mt-1 text-sm text-zinc-700">Reason: {item.reason}</p>
+                    <p className="mt-1 text-xs uppercase tracking-[0.2em] text-zinc-500">
+                      Status {item.status.replaceAll("_", " ")}
+                    </p>
+
+                    {item.status === "open" ? (
+                      <div className="mt-3">
+                        <input
+                          value={resolutionNote[item.id] ?? ""}
+                          onChange={(event) =>
+                            setResolutionNote((prev) => ({ ...prev, [item.id]: event.target.value }))
+                          }
+                          placeholder="Resolution note"
+                          className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none transition focus:border-zinc-500"
+                        />
+                        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                          <button
+                            type="button"
+                            onClick={() => handleResolve(item.id, "resolved_refund")}
+                            className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-800 transition hover:border-zinc-400"
+                          >
+                            Resolve Refund
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleResolve(item.id, "resolved_release")}
+                            className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-800 transition hover:border-zinc-400"
+                          >
+                            Resolve Release
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleResolve(item.id, "rejected")}
+                            className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-800 transition hover:border-zinc-400"
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="mt-2 text-sm text-zinc-700">{item.resolutionNote || "Resolved."}</p>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          </section>
+        ) : null}
+
+        {activeTab === "users" ? (
+          <section className="rounded-md border border-zinc-200 bg-white p-5">
+            <h2 className="text-lg font-semibold text-zinc-900">User Moderation</h2>
+
+            <div className="mt-4 flex flex-col gap-3">
+              {users
+                .filter((item) => item.role !== "admin")
+                .map((item) => (
+                  <div key={item.id} className="rounded-md border border-zinc-200 bg-zinc-50 p-4">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="font-semibold text-zinc-900">{item.name}</p>
+                        <p className="mt-1 text-xs uppercase tracking-[0.2em] text-zinc-500">
+                          {item.role} • status {item.status} • failed payments {item.failedPaymentIncidents}
+                        </p>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleUserStatus(item.id, "active")}
+                          className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-800 transition hover:border-zinc-400"
+                        >
+                          Active
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleUserStatus(item.id, "suspended")}
+                          className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-800 transition hover:border-zinc-400"
+                        >
+                          Suspend
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleUserStatus(item.id, "banned")}
+                          className="rounded-md border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-rose-700 transition hover:border-rose-400"
+                        >
+                          Ban
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+            </div>
+          </section>
+        ) : null}
+
+        {activeTab === "reports" ? (
+          <section className="rounded-md border border-zinc-200 bg-white p-5">
+            <h2 className="text-lg font-semibold text-zinc-900">Transaction & Revenue Reports</h2>
+            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="rounded-md border border-zinc-200 bg-zinc-50 px-4 py-3">
+                <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Gross volume</p>
+                <p className="mt-1 text-xl font-semibold text-zinc-900">{formatThb(report.grossVolumeThb)}</p>
               </div>
-              <div className="flex items-center gap-2">
-                <div className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-600">
-                  Cases {escrow.length}
-                </div>
-                <div className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-600">
-                  Total value {formatThb(heldThb)}
-                </div>
+              <div className="rounded-md border border-zinc-200 bg-zinc-50 px-4 py-3">
+                <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Fee revenue</p>
+                <p className="mt-1 text-xl font-semibold text-zinc-900">{formatThb(report.serviceFeeRevenueThb)}</p>
+              </div>
+              <div className="rounded-md border border-zinc-200 bg-zinc-50 px-4 py-3">
+                <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Refunds</p>
+                <p className="mt-1 text-xl font-semibold text-zinc-900">{formatThb(report.refundsThb)}</p>
+              </div>
+              <div className="rounded-md border border-zinc-200 bg-zinc-50 px-4 py-3">
+                <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Payouts</p>
+                <p className="mt-1 text-xl font-semibold text-zinc-900">{formatThb(report.payoutsThb)}</p>
               </div>
             </div>
 
-            {escrow.length === 0 ? (
-              <p className="mt-6 text-sm text-zinc-600">No fulfillment cases yet.</p>
-            ) : (
-              <div className="mt-6 grid grid-cols-1 gap-5 lg:grid-cols-[0.95fr_1.05fr]">
-                <div className="flex flex-col gap-3">
-                  {escrow.map((item) => {
-                    const isSelected = item.id === selectedEscrowItem?.id;
-
-                    return (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => setSelectedEscrowId(item.id)}
-                        className={`rounded-md border p-4 text-left transition ${
-                          isSelected
-                            ? "border-zinc-900 bg-zinc-900 text-white"
-                            : "border-zinc-200 bg-zinc-50 text-zinc-900 hover:border-zinc-300"
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <p className="text-base font-semibold">{item.title}</p>
-                            <p
-                              className={`mt-1 text-xs uppercase tracking-[0.2em] ${
-                                isSelected ? "text-white/70" : "text-zinc-500"
-                              }`}
-                            >
-                              {item.buyer} • {item.seller}
-                            </p>
-                          </div>
-                          <span
-                            className={`rounded-md border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${
-                              isSelected
-                                ? "border-white/30 bg-white/10 text-white"
-                                : escrowTone(item.status)
-                            }`}
-                          >
-                            {item.status}
-                          </span>
-                        </div>
-                        <p className="mt-4 text-2xl font-semibold">{formatThb(item.amountThb)}</p>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {selectedEscrowItem ? (
-                  <div className="rounded-md border border-zinc-200 bg-zinc-50 p-5">
-                    <div className="flex flex-col gap-2">
-                      <p className="text-lg font-semibold text-zinc-900">{selectedEscrowItem.title}</p>
-                      <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">
-                        Buyer {selectedEscrowItem.buyer} • Seller {selectedEscrowItem.seller}
-                      </p>
-                    </div>
-
-                    <div className="mt-4 grid grid-cols-2 gap-3">
-                      <div className="rounded-md border border-zinc-200 bg-white px-4 py-3">
-                        <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Order value</p>
-                        <p className="mt-1 text-xl font-semibold text-zinc-900">
-                          {formatThb(selectedEscrowItem.amountThb)}
-                        </p>
-                      </div>
-                      <div className="rounded-md border border-zinc-200 bg-white px-4 py-3">
-                        <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Status</p>
-                        <p className="mt-1 text-xl font-semibold text-zinc-900">
-                          {selectedEscrowItem.status}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="mt-4 flex flex-col gap-2">
-                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
-                        Progress
-                      </p>
-                      <div className="flex flex-wrap gap-2">
-                        {ESCROW_FLOW.map((step, index) => (
-                          <span
-                            key={step}
-                            className={`rounded-md border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${
-                              index <= selectedEscrowIndex
-                                ? "border-zinc-900 bg-zinc-900 text-white"
-                                : "border-zinc-300 bg-white text-zinc-600"
-                            }`}
-                          >
-                            {step}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="mt-4 rounded-md border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-700">
-                      {selectedEscrowItem.note}
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => advanceEscrow(selectedEscrowItem.id)}
-                      className="mt-5 w-full rounded-md bg-zinc-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-zinc-800"
-                    >
-                      Advance case
-                    </button>
-                  </div>
-                ) : null}
+            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div className="rounded-md border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-700">
+                Transactions: {report.transactionCount}
               </div>
-            )}
+              <div className="rounded-md border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-700">
+                Failed payments: {report.failedPaymentCount}
+              </div>
+              <div className="rounded-md border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-700">
+                Held escrows: {report.heldEscrowCount}
+              </div>
+            </div>
+
+            <div className="mt-5 overflow-x-auto">
+              <table className="min-w-full border-collapse text-sm">
+                <thead>
+                  <tr className="border-b border-zinc-200 text-left text-xs uppercase tracking-[0.2em] text-zinc-500">
+                    <th className="px-2 py-2">Type</th>
+                    <th className="px-2 py-2">Amount</th>
+                    <th className="px-2 py-2">Fee</th>
+                    <th className="px-2 py-2">Time</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {transactions.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="px-2 py-4 text-zinc-600">
+                        No transactions yet.
+                      </td>
+                    </tr>
+                  ) : (
+                    transactions.slice(0, 20).map((item) => (
+                      <tr key={item.id} className="border-b border-zinc-100 text-zinc-700">
+                        <td className="px-2 py-3">{item.type.replaceAll("_", " ")}</td>
+                        <td className="px-2 py-3">{formatThb(item.amountThb)}</td>
+                        <td className="px-2 py-3">{formatThb(item.serviceFeeThb)}</td>
+                        <td className="px-2 py-3">{new Date(item.createdAtMs).toLocaleTimeString()}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </section>
-        )}
+        ) : null}
       </main>
     </div>
   );
