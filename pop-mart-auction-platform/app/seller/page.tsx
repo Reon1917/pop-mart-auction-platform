@@ -9,13 +9,11 @@ import {
   ensurePrototypeData,
   getAllAuctions,
   getEscrowCases,
-  getMockCredentials,
   getNotificationsForUser,
   getSession,
   getSessionUser,
   settleDueAuctions,
   type Auction,
-  type EscrowCase,
   type NotificationRecord,
   type Session,
 } from "@/app/lib/storage";
@@ -30,12 +28,20 @@ type StatusMessage = {
   text: string;
 };
 
+function topNavLinkClass(active: boolean) {
+  return `rounded-md border px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.2em] transition ${
+    active
+      ? "border-zinc-900 bg-zinc-900 text-white"
+      : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-400"
+  }`;
+}
+
 export default function SellerPage() {
   const [session, setSession] = useState<Session | null>(null);
   const [sellerId, setSellerId] = useState<string | null>(null);
   const [auctions, setAuctions] = useState<Auction[]>([]);
-  const [escrowCases, setEscrowCases] = useState<EscrowCase[]>([]);
   const [notifications, setNotifications] = useState<NotificationRecord[]>([]);
+  const [soldItemCount, setSoldItemCount] = useState(0);
   const [nowMs, setNowMs] = useState(() => Date.now());
 
   const [title, setTitle] = useState("HIRONO Mime Limited");
@@ -46,7 +52,7 @@ export default function SellerPage() {
 
   const [statusMessage, setStatusMessage] = useState<StatusMessage>({
     tone: "neutral",
-    text: "Seller notifications and verification tracking are active.",
+    text: "Create auctions from this page. Use Profile and Payouts for detailed operations.",
   });
 
   useEffect(() => {
@@ -63,13 +69,13 @@ export default function SellerPage() {
       if (nextUser?.role === "seller") {
         setSellerId(nextUser.id);
         setAuctions(allAuctions.filter((item) => item.sellerId === nextUser.id));
-        setEscrowCases(allCases.filter((item) => item.sellerId === nextUser.id));
         setNotifications(getNotificationsForUser(nextUser.id));
+        setSoldItemCount(allCases.filter((item) => item.sellerId === nextUser.id).length);
       } else {
         setSellerId(null);
         setAuctions([]);
-        setEscrowCases([]);
         setNotifications([]);
+        setSoldItemCount(0);
       }
       setNowMs(Date.now());
     };
@@ -94,8 +100,6 @@ export default function SellerPage() {
       };
     });
   }, [auctions, nowMs]);
-
-  const sessionRoute = session ? getMockCredentials(session.role).redirectTo : "/login";
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -137,25 +141,27 @@ export default function SellerPage() {
   return (
     <div className="min-h-screen bg-zinc-50 text-zinc-900">
       <header className="border-b border-zinc-200 bg-white">
-        <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-5">
+        <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-6 py-5 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
-              Seller Dashboard
-            </p>
-            <h1 className="text-lg font-semibold text-zinc-900">Sales, Verification, and Fees</h1>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">Seller</p>
+            <h1 className="text-lg font-semibold text-zinc-900">Dashboard</h1>
           </div>
-          <nav className="flex items-center gap-2">
-            <Link
-              href="/"
-              className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-800 transition hover:border-zinc-400"
-            >
-              Landing
+
+          <nav className="flex flex-wrap items-center gap-2">
+            <Link href="/seller" className={topNavLinkClass(true)}>
+              Dashboard
+            </Link>
+            <Link href="/seller/payouts" className={topNavLinkClass(false)}>
+              Payouts
+            </Link>
+            <Link href="/seller/profile" className={topNavLinkClass(false)}>
+              Profile
             </Link>
             <Link
-              href={sessionRoute}
-              className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-800 transition hover:border-zinc-400"
+              href="/"
+              className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-700 transition hover:border-zinc-400"
             >
-              Dashboard
+              Landing
             </Link>
             {session ? (
               <button
@@ -165,14 +171,14 @@ export default function SellerPage() {
                   setSession(null);
                   setSellerId(null);
                 }}
-                className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800"
+                className="rounded-md border border-zinc-900 bg-zinc-900 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.2em] text-white transition hover:bg-zinc-800"
               >
-                Sign out
+                Sign Out
               </button>
             ) : (
               <Link
                 href="/login"
-                className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-800 transition hover:border-zinc-400"
+                className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-700 transition hover:border-zinc-400"
               >
                 Login
               </Link>
@@ -182,12 +188,36 @@ export default function SellerPage() {
       </header>
 
       <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-6 py-10">
-        <section className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_1fr]">
+        {session?.role !== "seller" ? (
+          <section className="rounded-md border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-900">
+            Sign in as a seller to create and manage auctions.
+          </section>
+        ) : null}
+
+        <section className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="rounded-md border border-zinc-200 bg-white px-4 py-3">
+            <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Active auctions</p>
+            <p className="mt-1 text-2xl font-semibold text-zinc-900">
+              {sellerAuctions.filter((item) => item.status === "live").length}
+            </p>
+          </div>
+          <Link
+            href="/seller/payouts"
+            className="rounded-md border border-zinc-200 bg-white px-4 py-3 transition hover:border-zinc-300"
+          >
+            <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Sold items</p>
+            <p className="mt-1 text-2xl font-semibold text-zinc-900">{soldItemCount}</p>
+          </Link>
+          <div className="rounded-md border border-zinc-200 bg-white px-4 py-3">
+            <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Notifications</p>
+            <p className="mt-1 text-2xl font-semibold text-zinc-900">{notifications.length}</p>
+          </div>
+        </section>
+
+        <section className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_0.9fr]">
           <section className="rounded-md border border-zinc-200 bg-white p-5">
             <h2 className="text-lg font-semibold text-zinc-900">Create Auction</h2>
-            <p className="mt-1 text-sm text-zinc-600">
-              Requirement rule: duration must stay between 1 and 24 hours.
-            </p>
+            <p className="mt-1 text-sm text-zinc-600">Duration must stay between 1 and 24 hours.</p>
 
             <form onSubmit={handleSubmit} className="mt-4 flex flex-col gap-3">
               <input
@@ -234,21 +264,42 @@ export default function SellerPage() {
                 type="submit"
                 className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800"
               >
-                Publish auction
+                Publish Auction
               </button>
             </form>
           </section>
 
-          <section className={`rounded-md border px-4 py-3 text-sm ${messageToneClass}`}>
-            {statusMessage.text}
-          </section>
+          <aside className="flex flex-col gap-6">
+            <section className="rounded-md border border-zinc-200 bg-white p-5">
+              <h2 className="text-lg font-semibold text-zinc-900">Quick Access</h2>
+              <p className="mt-1 text-sm text-zinc-600">Open focused pages for profile and settlement details.</p>
+              <div className="mt-3 grid grid-cols-1 gap-2">
+                <Link
+                  href="/seller/payouts"
+                  className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 transition hover:border-zinc-400"
+                >
+                  Verification and Payouts
+                </Link>
+                <Link
+                  href="/seller/profile"
+                  className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 transition hover:border-zinc-400"
+                >
+                  Seller Profile
+                </Link>
+              </div>
+            </section>
+
+            <section className={`rounded-md border px-4 py-3 text-sm ${messageToneClass}`}>
+              {statusMessage.text}
+            </section>
+          </aside>
         </section>
 
         <section className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_1fr]">
           <section className="rounded-md border border-zinc-200 bg-white p-5">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold text-zinc-900">Your Auctions</h2>
-              <span className="rounded-md border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-zinc-700">
+              <span className="rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-700">
                 {sellerAuctions.length}
               </span>
             </div>
@@ -261,11 +312,9 @@ export default function SellerPage() {
                   <div key={item.id} className="rounded-md border border-zinc-200 bg-zinc-50 p-3">
                     <p className="font-semibold text-zinc-900">{item.title}</p>
                     <p className="mt-1 text-xs uppercase tracking-[0.2em] text-zinc-500">
-                      Current {formatThb(item.currentBidThb)} • {item.timeLabel}
+                      Current {formatThb(item.currentBidThb)} | {item.timeLabel}
                     </p>
-                    <p className="mt-1 text-sm text-zinc-700">
-                      Status: {item.status.replaceAll("_", " ")}
-                    </p>
+                    <p className="mt-1 text-sm text-zinc-700">Status: {item.status.replaceAll("_", " ")}</p>
                   </div>
                 ))
               )}
@@ -274,8 +323,8 @@ export default function SellerPage() {
 
           <section className="rounded-md border border-zinc-200 bg-white p-5">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-zinc-900">Notifications</h2>
-              <span className="rounded-md border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-zinc-700">
+              <h2 className="text-lg font-semibold text-zinc-900">Recent Notifications</h2>
+              <span className="rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-700">
                 {notifications.length}
               </span>
             </div>
@@ -293,50 +342,6 @@ export default function SellerPage() {
               )}
             </div>
           </section>
-        </section>
-
-        <section className="rounded-md border border-zinc-200 bg-white p-5">
-          <h2 className="text-lg font-semibold text-zinc-900">Verification & Payout Tracking</h2>
-          <p className="mt-1 text-sm text-zinc-600">
-            Service fee is fixed at 10% and shown per transaction.
-          </p>
-
-          <div className="mt-4 overflow-x-auto">
-            <table className="min-w-full border-collapse text-sm">
-              <thead>
-                <tr className="border-b border-zinc-200 text-left text-xs uppercase tracking-[0.2em] text-zinc-500">
-                  <th className="px-2 py-2">Item</th>
-                  <th className="px-2 py-2">Verification</th>
-                  <th className="px-2 py-2">Shipment</th>
-                  <th className="px-2 py-2">Gross</th>
-                  <th className="px-2 py-2">Fee</th>
-                  <th className="px-2 py-2">Net Payout</th>
-                  <th className="px-2 py-2">Payout Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {escrowCases.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="px-2 py-4 text-zinc-600">
-                      No sold items yet.
-                    </td>
-                  </tr>
-                ) : (
-                  escrowCases.map((item) => (
-                    <tr key={item.id} className="border-b border-zinc-100 text-zinc-700">
-                      <td className="px-2 py-3 font-semibold text-zinc-900">{item.title}</td>
-                      <td className="px-2 py-3">{item.verificationStatus}</td>
-                      <td className="px-2 py-3">{item.shipmentStatus}</td>
-                      <td className="px-2 py-3">{formatThb(item.grossAmountThb)}</td>
-                      <td className="px-2 py-3">{formatThb(item.serviceFeeThb)}</td>
-                      <td className="px-2 py-3">{formatThb(item.netPayoutThb)}</td>
-                      <td className="px-2 py-3">{item.payoutStatus}</td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
         </section>
       </main>
     </div>

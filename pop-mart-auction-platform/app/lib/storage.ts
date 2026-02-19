@@ -2,6 +2,7 @@ import {
   AUCTION_SEEDS,
   DISPUTE_SEEDS,
   NOTIFICATION_SEEDS,
+  PAYMENT_GATEWAY_SEEDS,
   TRANSACTION_SEEDS,
   USER_SEEDS,
 } from "@/app/mock/prototype-data";
@@ -41,6 +42,7 @@ export type UserAccount = {
   email: string;
   status: UserStatus;
   paymentMethodLabel: string;
+  shippingAddress: string;
   balanceThb: number;
   failedPaymentIncidents: number;
 };
@@ -123,6 +125,20 @@ export type TransactionRecord = {
   createdAtMs: number;
 };
 
+export type PaymentGatewayStatus = "initiated" | "authorized" | "captured" | "failed";
+
+export type PaymentGatewayLog = {
+  id: string;
+  auctionId: string;
+  buyerId: string;
+  attempt: number;
+  provider: string;
+  status: PaymentGatewayStatus;
+  amountThb: number;
+  message: string;
+  createdAtMs: number;
+};
+
 export type DisputeCase = {
   id: string;
   caseId: string;
@@ -165,6 +181,8 @@ export type ReportsSummary = {
   failedPaymentCount: number;
   openDisputeCount: number;
   heldEscrowCount: number;
+  gatewayAttemptCount: number;
+  gatewayFailureCount: number;
 };
 
 export type ActionResult<T = undefined> = {
@@ -191,6 +209,7 @@ const KEYS = {
   notifications: "pm_notifications",
   escrowCases: "pm_escrow_cases",
   transactions: "pm_transactions",
+  paymentGatewayLogs: "pm_payment_gateway_logs",
   disputes: "pm_disputes",
   listings: "pm_seller_listings",
   session: "pm_session",
@@ -268,6 +287,7 @@ function createDefaultUsers(): UserAccount[] {
     email: seed.email,
     status: "active",
     paymentMethodLabel: seed.paymentMethodLabel,
+    shippingAddress: seed.shippingAddress,
     balanceThb: seed.balanceThb,
     failedPaymentIncidents: 0,
   }));
@@ -299,6 +319,10 @@ function createDefaultTransactions(): TransactionRecord[] {
   return TRANSACTION_SEEDS.map((seed) => ({ ...seed }));
 }
 
+function createDefaultPaymentGatewayLogs(): PaymentGatewayLog[] {
+  return PAYMENT_GATEWAY_SEEDS.map((seed) => ({ ...seed }));
+}
+
 function createDefaultDisputes(): DisputeCase[] {
   return DISPUTE_SEEDS.map((seed) => ({ ...seed }));
 }
@@ -322,7 +346,14 @@ function ensureKey<T extends JsonValue>(key: string, defaultFactory: () => T): T
 }
 
 function getUsers() {
-  return readJson<UserAccount[]>(KEYS.users, []);
+  return readJson<UserAccount[]>(KEYS.users, []).map((item) => ({
+    ...item,
+    paymentMethodLabel: typeof item.paymentMethodLabel === "string" ? item.paymentMethodLabel : "",
+    shippingAddress: typeof item.shippingAddress === "string" ? item.shippingAddress : "",
+    failedPaymentIncidents: Number.isFinite(item.failedPaymentIncidents)
+      ? item.failedPaymentIncidents
+      : 0,
+  }));
 }
 
 function setUsers(users: UserAccount[]) {
@@ -367,6 +398,14 @@ function getTransactionsUnsafe() {
 
 function setTransactions(transactions: TransactionRecord[]) {
   writeJson(KEYS.transactions, transactions);
+}
+
+function getPaymentGatewayLogsUnsafe() {
+  return readJson<PaymentGatewayLog[]>(KEYS.paymentGatewayLogs, []);
+}
+
+function setPaymentGatewayLogs(logs: PaymentGatewayLog[]) {
+  writeJson(KEYS.paymentGatewayLogs, logs);
 }
 
 function getDisputesUnsafe() {
@@ -446,6 +485,30 @@ function recordTransaction(
   });
 }
 
+function recordPaymentGatewayLog(
+  logs: PaymentGatewayLog[],
+  payload: {
+    auctionId: string;
+    buyerId: string;
+    attempt: number;
+    amountThb: number;
+    status: PaymentGatewayStatus;
+    message: string;
+  }
+) {
+  logs.unshift({
+    id: makeId("pg"),
+    auctionId: payload.auctionId,
+    buyerId: payload.buyerId,
+    attempt: payload.attempt,
+    provider: "PayMock Gateway",
+    status: payload.status,
+    amountThb: payload.amountThb,
+    message: payload.message,
+    createdAtMs: now(),
+  });
+}
+
 function attemptWinnerPayment(
   auctionId: string,
   allowRetryWindowBypass: boolean
@@ -458,6 +521,7 @@ function attemptWinnerPayment(
   const notifications = getNotificationsUnsafe();
   const transactions = getTransactionsUnsafe();
   const escrowCases = getEscrowCasesUnsafe();
+  const paymentGatewayLogs = getPaymentGatewayLogsUnsafe();
 
   const auctionIndex = auctions.findIndex((item) => item.id === auctionId);
   if (auctionIndex < 0) {
@@ -502,7 +566,25 @@ function attemptWinnerPayment(
   const nextAttempt = auction.paymentAttempts + 1;
   const seller = users.find((user) => user.id === auction.sellerId) ?? null;
 
+  recordPaymentGatewayLog(paymentGatewayLogs, {
+    auctionId: auction.id,
+    buyerId: buyer.id,
+    attempt: nextAttempt,
+    amountThb: auction.currentBidThb,
+    status: "initiated",
+    message: "Payment request sent to gateway.",
+  });
+
   if (buyer.balanceThb >= auction.currentBidThb) {
+    recordPaymentGatewayLog(paymentGatewayLogs, {
+      auctionId: auction.id,
+      buyerId: buyer.id,
+      attempt: nextAttempt,
+      amountThb: auction.currentBidThb,
+      status: "authorized",
+      message: "Gateway authorization successful.",
+    });
+
     users[buyerIndex] = {
       ...buyer,
       balanceThb: buyer.balanceThb - auction.currentBidThb,
@@ -530,6 +612,15 @@ function attemptWinnerPayment(
     };
     auctions[auctionIndex] = nextAuction;
 
+    recordPaymentGatewayLog(paymentGatewayLogs, {
+      auctionId: auction.id,
+      buyerId: buyer.id,
+      attempt: nextAttempt,
+      amountThb: auction.currentBidThb,
+      status: "captured",
+      message: "Payment captured and moved to escrow hold.",
+    });
+
     pushNotification(
       notifications,
       buyer.id,
@@ -551,6 +642,7 @@ function attemptWinnerPayment(
     setAuctions(auctions);
     setEscrowCases(escrowCases);
     setTransactions(transactions);
+    setPaymentGatewayLogs(paymentGatewayLogs);
     setNotifications(notifications);
 
     return {
@@ -567,6 +659,15 @@ function attemptWinnerPayment(
 
   let nextAuction: Auction;
   if (nextAttempt < 2) {
+    recordPaymentGatewayLog(paymentGatewayLogs, {
+      auctionId: auction.id,
+      buyerId: buyer.id,
+      attempt: nextAttempt,
+      amountThb: auction.currentBidThb,
+      status: "failed",
+      message: "Gateway declined payment: insufficient funds. Retry scheduled.",
+    });
+
     nextAuction = {
       ...auction,
       status: "ended",
@@ -591,6 +692,15 @@ function attemptWinnerPayment(
       );
     }
   } else {
+    recordPaymentGatewayLog(paymentGatewayLogs, {
+      auctionId: auction.id,
+      buyerId: buyer.id,
+      attempt: nextAttempt,
+      amountThb: auction.currentBidThb,
+      status: "failed",
+      message: "Gateway declined payment: max retries reached.",
+    });
+
     nextUser.failedPaymentIncidents = buyer.failedPaymentIncidents + 1;
 
     let accountMessage = "Payment failed twice. Auction completion is cancelled.";
@@ -625,6 +735,7 @@ function attemptWinnerPayment(
 
   setUsers(users);
   setAuctions(auctions);
+  setPaymentGatewayLogs(paymentGatewayLogs);
   setNotifications(notifications);
 
   return {
@@ -652,6 +763,7 @@ export function ensurePrototypeData() {
   ensureKey<NotificationRecord[]>(KEYS.notifications, createDefaultNotifications);
   ensureKey<EscrowCase[]>(KEYS.escrowCases, () => []);
   ensureKey<TransactionRecord[]>(KEYS.transactions, createDefaultTransactions);
+  ensureKey<PaymentGatewayLog[]>(KEYS.paymentGatewayLogs, createDefaultPaymentGatewayLogs);
   ensureKey<DisputeCase[]>(KEYS.disputes, createDefaultDisputes);
   ensureKey<SellerListing[]>(KEYS.listings, () => []);
   ensureKey<number>(KEYS.simCounter, () => 0);
@@ -680,6 +792,11 @@ export function getEscrowCases() {
 export function getTransactions() {
   ensurePrototypeData();
   return getTransactionsUnsafe();
+}
+
+export function getPaymentGatewayLogs() {
+  ensurePrototypeData();
+  return getPaymentGatewayLogsUnsafe();
 }
 
 export function getDisputes() {
@@ -722,8 +839,20 @@ export function placeBidRealtime(
     return { ok: false, message: "Bidder not found." };
   }
 
+  if (bidder.role !== "buyer") {
+    return { ok: false, message: "Only buyer accounts can place bids." };
+  }
+
   if (bidder.status !== "active") {
     return { ok: false, message: "Only active users can bid." };
+  }
+
+  if (!bidder.paymentMethodLabel.trim()) {
+    return { ok: false, message: "A linked payment method is required before bidding." };
+  }
+
+  if (!Number.isInteger(amountThb)) {
+    return { ok: false, message: "Bid amount must be a whole number." };
   }
 
   const auctionIndex = auctions.findIndex((item) => item.id === auctionId);
@@ -734,6 +863,14 @@ export function placeBidRealtime(
   const auction = auctions[auctionIndex];
   if (auction.status !== "live" || auction.endsAtMs <= currentTime) {
     return { ok: false, message: "Auction is not accepting bids." };
+  }
+
+  if (auction.sellerId === bidder.id) {
+    return { ok: false, message: "Sellers cannot bid on their own auction." };
+  }
+
+  if (auction.highestBidderId === bidder.id) {
+    return { ok: false, message: "You are already the highest bidder." };
   }
 
   const minimumAllowed = auction.currentBidThb + auction.minIncrementThb;
@@ -810,6 +947,13 @@ export function runMockCompetingBidTick(auctionId: string): ActionResult<{ aucti
     return { ok: false, message: "Auction is not active." };
   }
 
+  if (!auction.highestBidderId) {
+    return {
+      ok: false,
+      message: "Counter bid needs an existing highest bidder first.",
+    };
+  }
+
   const activeBuyers = users.filter((user) => user.role === "buyer" && user.status === "active");
   const candidates = activeBuyers.filter((user) => user.id !== auction.highestBidderId);
   if (candidates.length === 0) {
@@ -857,7 +1001,7 @@ export function runMockCompetingBidTick(auctionId: string): ActionResult<{ aucti
 
   return {
     ok: true,
-    message: "Simulated competing bid applied.",
+    message: "Counter bid applied. Previous highest bidder was notified.",
     data: { auction: nextAuction },
   };
 }
@@ -1453,6 +1597,52 @@ export function setUserStatus(
   return { ok: true, message: "User status updated.", data: { user: nextUser } };
 }
 
+export function updateUserProfile(
+  userId: string,
+  payload: {
+    paymentMethodLabel: string;
+    shippingAddress: string;
+  }
+): ActionResult<{ user: UserAccount }> {
+  ensurePrototypeData();
+
+  const users = getUsers();
+  const userIndex = users.findIndex((item) => item.id === userId);
+  if (userIndex < 0) {
+    return { ok: false, message: "User not found." };
+  }
+
+  const user = users[userIndex];
+  if (user.role === "admin") {
+    return { ok: false, message: "Admin profile is not editable in this prototype." };
+  }
+
+  const paymentMethodLabel = payload.paymentMethodLabel.trim();
+  if (!paymentMethodLabel) {
+    return { ok: false, message: "Payment method is required." };
+  }
+
+  const shippingAddress = payload.shippingAddress.trim();
+  if (!shippingAddress) {
+    return { ok: false, message: "Address is required." };
+  }
+
+  const nextUser: UserAccount = {
+    ...user,
+    paymentMethodLabel,
+    shippingAddress,
+  };
+
+  users[userIndex] = nextUser;
+  setUsers(users);
+
+  return {
+    ok: true,
+    message: "Profile saved.",
+    data: { user: nextUser },
+  };
+}
+
 export function setUserBalance(
   userId: string,
   balanceThb: number
@@ -1487,6 +1677,7 @@ export function getReportsSummary(): ReportsSummary {
   ensurePrototypeData();
 
   const transactions = getTransactionsUnsafe();
+  const paymentGatewayLogs = getPaymentGatewayLogsUnsafe();
   const disputes = getDisputesUnsafe();
   const auctions = getAuctionsUnsafe();
   const escrowCases = getEscrowCasesUnsafe();
@@ -1516,6 +1707,8 @@ export function getReportsSummary(): ReportsSummary {
     failedPaymentCount: auctions.filter((item) => item.status === "payment_failed").length,
     openDisputeCount: disputes.filter((item) => item.status === "open").length,
     heldEscrowCount: escrowCases.filter((item) => item.escrowStatus === "held").length,
+    gatewayAttemptCount: paymentGatewayLogs.filter((item) => item.status === "initiated").length,
+    gatewayFailureCount: paymentGatewayLogs.filter((item) => item.status === "failed").length,
   };
 }
 
@@ -1627,6 +1820,7 @@ export function resetPrototypeData(options: ResetOptions = {}) {
   writeJson(KEYS.notifications, [] as NotificationRecord[]);
   writeJson(KEYS.escrowCases, [] as EscrowCase[]);
   writeJson(KEYS.transactions, [] as TransactionRecord[]);
+  writeJson(KEYS.paymentGatewayLogs, [] as PaymentGatewayLog[]);
   writeJson(KEYS.disputes, [] as DisputeCase[]);
   writeJson(KEYS.listings, [] as SellerListing[]);
   writeJson(KEYS.simCounter, 0);

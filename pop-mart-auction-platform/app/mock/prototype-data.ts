@@ -4,6 +4,7 @@ export type UserSeed = {
   name: string;
   email: string;
   paymentMethodLabel: string;
+  shippingAddress: string;
   balanceThb: number;
 };
 
@@ -48,6 +49,18 @@ export type DisputeSeed = {
   resolvedAtMs: number | null;
 };
 
+export type PaymentGatewaySeed = {
+  id: string;
+  auctionId: string;
+  buyerId: string;
+  attempt: number;
+  provider: string;
+  status: "initiated" | "authorized" | "captured" | "failed";
+  amountThb: number;
+  message: string;
+  createdAtMs: number;
+};
+
 export const USER_SEEDS: UserSeed[] = [
   {
     id: "buyer-demo",
@@ -55,6 +68,7 @@ export const USER_SEEDS: UserSeed[] = [
     name: "Buyer Demo",
     email: "buyer@popmart.demo",
     paymentMethodLabel: "Visa •••• 1108",
+    shippingAddress: "18 Sukhumvit Road, Bangkok 10110",
     balanceThb: 22000,
   },
   {
@@ -63,6 +77,7 @@ export const USER_SEEDS: UserSeed[] = [
     name: "Bidder Lin",
     email: "bidder.lin@popmart.demo",
     paymentMethodLabel: "Mastercard •••• 2184",
+    shippingAddress: "77 Rama IX Road, Bangkok 10310",
     balanceThb: 16000,
   },
   {
@@ -71,6 +86,7 @@ export const USER_SEEDS: UserSeed[] = [
     name: "Bidder Jay",
     email: "bidder.jay@popmart.demo",
     paymentMethodLabel: "Debit •••• 9021",
+    shippingAddress: "55 Petchburi Road, Bangkok 10400",
     balanceThb: 9000,
   },
   {
@@ -79,6 +95,7 @@ export const USER_SEEDS: UserSeed[] = [
     name: "Seller Demo",
     email: "seller@popmart.demo",
     paymentMethodLabel: "Bank •••• 5532",
+    shippingAddress: "Warehouse A, 199 Ladprao Road, Bangkok 10230",
     balanceThb: 3500,
   },
   {
@@ -87,6 +104,7 @@ export const USER_SEEDS: UserSeed[] = [
     name: "Toy Quest",
     email: "toy.quest@popmart.demo",
     paymentMethodLabel: "Bank •••• 7891",
+    shippingAddress: "Toy Quest Hub, 45 Ratchadaphisek Road, Bangkok 10320",
     balanceThb: 4200,
   },
   {
@@ -95,6 +113,7 @@ export const USER_SEEDS: UserSeed[] = [
     name: "Admin Demo",
     email: "admin@popmart.demo",
     paymentMethodLabel: "Platform Wallet",
+    shippingAddress: "Pop Mart Operations HQ",
     balanceThb: 0,
   },
 ];
@@ -125,3 +144,5 @@ export const NOTIFICATION_SEEDS: NotificationSeed[] = [];
 export const TRANSACTION_SEEDS: TransactionSeed[] = [];
 
 export const DISPUTE_SEEDS: DisputeSeed[] = [];
+
+export const PAYMENT_GATEWAY_SEEDS: PaymentGatewaySeed[] = [];

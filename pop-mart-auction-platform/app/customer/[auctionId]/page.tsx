@@ -13,7 +13,6 @@ import {
   getSession,
   getSessionUser,
   placeBidRealtime,
-  runMockCompetingBidTick,
   settleDueAuctions,
   type Auction,
   type NotificationRecord,
@@ -32,13 +31,14 @@ export default function AuctionDetailPage() {
   const [session, setSession] = useState<Session | null>(null);
   const [buyerId, setBuyerId] = useState<string | null>(null);
   const [buyerStatus, setBuyerStatus] = useState<"active" | "suspended" | "banned" | null>(null);
+  const [hasPaymentMethod, setHasPaymentMethod] = useState(false);
   const [auction, setAuction] = useState<Auction | null>(null);
   const [notifications, setNotifications] = useState<NotificationRecord[]>([]);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [bidInput, setBidInput] = useState("0");
   const [message, setMessage] = useState<LocalMessage>({
     tone: "neutral",
-    text: "Manual bids and simulated competing bids update in realtime.",
+    text: "Bids are validated against increment, role, self-bid, and account rules.",
   });
 
   useEffect(() => {
@@ -55,6 +55,9 @@ export default function AuctionDetailPage() {
       setSession(nextSession);
       setBuyerId(nextUser?.role === "buyer" ? nextUser.id : null);
       setBuyerStatus(nextUser?.role === "buyer" ? nextUser.status : null);
+      setHasPaymentMethod(
+        nextUser?.role === "buyer" ? Boolean(nextUser.paymentMethodLabel.trim()) : false
+      );
       setAuction(nextAuction);
       if (nextUser?.role === "buyer") {
         setNotifications(getNotificationsForUser(nextUser.id));
@@ -75,20 +78,12 @@ export default function AuctionDetailPage() {
 
     refresh();
 
-    const timer = window.setInterval(() => {
-      refresh();
-      if (auctionId) {
-        runMockCompetingBidTick(auctionId);
-      }
-    }, 6000);
-
-    const secondTimer = window.setInterval(() => setNowMs(Date.now()), 1000);
+    const timer = window.setInterval(refresh, 1000);
 
     window.addEventListener("storage", refresh);
 
     return () => {
       window.clearInterval(timer);
-      window.clearInterval(secondTimer);
       window.removeEventListener("storage", refresh);
     };
   }, [auctionId]);
@@ -106,6 +101,30 @@ export default function AuctionDetailPage() {
 
   const latestOutbid = notifications.find((item) => item.type === "outbid" && !item.read);
   const sessionRoute = session ? getMockCredentials(session.role).redirectTo : "/login";
+  const bidChecks = useMemo(() => {
+    if (!auctionView) {
+      return [];
+    }
+
+    return [
+      {
+        label: "Buyer account is active",
+        ok: buyerStatus === "active",
+      },
+      {
+        label: "Payment method is linked",
+        ok: hasPaymentMethod,
+      },
+      {
+        label: "You are not the seller of this item",
+        ok: buyerId !== null ? auctionView.sellerId !== buyerId : false,
+      },
+      {
+        label: "You are not already the highest bidder",
+        ok: buyerId !== null ? auctionView.highestBidderId !== buyerId : false,
+      },
+    ];
+  }, [auctionView, buyerStatus, hasPaymentMethod, buyerId]);
 
   function handleBid(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -228,6 +247,22 @@ export default function AuctionDetailPage() {
               <p className="mt-1 text-sm text-zinc-600">
                 Bids are validated by minimum increment and account status.
               </p>
+
+              <div className="mt-4 rounded-md border border-zinc-200 bg-zinc-50 p-3">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                  Bid Verification
+                </p>
+                <div className="mt-2 flex flex-col gap-1.5">
+                  {bidChecks.map((check) => (
+                    <p
+                      key={check.label}
+                      className={`text-sm ${check.ok ? "text-emerald-700" : "text-rose-700"}`}
+                    >
+                      {check.ok ? "PASS" : "BLOCK"} · {check.label}
+                    </p>
+                  ))}
+                </div>
+              </div>
 
               <div className="mt-4 grid grid-cols-3 gap-2">
                 {[0, 1, 2].map((step) => {
