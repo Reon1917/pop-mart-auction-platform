@@ -5,127 +5,113 @@ import { useEffect, useMemo, useState } from "react";
 import { formatDuration, formatThb } from "@/app/lib/format";
 import {
   clearSession,
-  ensureCustomerAuctions,
-  getCustomerAuctions,
-  getMockCredentials,
+  ensurePrototypeData,
+  getAllAuctions,
+  getEscrowCases,
+  getNotificationsForUser,
   getSession,
-  resetPrototypeData,
-  STORAGE_KEYS,
+  getSessionUser,
+  markNotificationRead,
+  settleDueAuctions,
+  type Auction,
+  type NotificationRecord,
   type Session,
 } from "@/app/lib/storage";
-import type { CustomerAuction } from "@/app/mock/customer-data";
 
-type AuctionWithTime = CustomerAuction & {
+type AuctionView = Auction & {
+  timeLabel: string;
   hasEnded: boolean;
   nextBid: number;
-  timeLabel: string;
 };
 
+function topNavLinkClass(active: boolean) {
+  return `rounded-md border px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.2em] transition ${
+    active
+      ? "border-zinc-900 bg-zinc-900 text-white"
+      : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-400"
+  }`;
+}
+
 export default function CustomerPage() {
-  const [auctions, setAuctions] = useState<CustomerAuction[]>([]);
   const [session, setSession] = useState<Session | null>(null);
+  const [auctions, setAuctions] = useState<Auction[]>([]);
+  const [notifications, setNotifications] = useState<NotificationRecord[]>([]);
+  const [wonItemCount, setWonItemCount] = useState(0);
   const [nowMs, setNowMs] = useState(() => Date.now());
 
-  const handleReset = () => {
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm("Reset demo data and timers? This clears bids, listings, and logs.")
-    ) {
-      return;
-    }
-    resetPrototypeData();
-    setAuctions(getCustomerAuctions());
-    setSession(getSession());
-    setNowMs(Date.now());
-  };
-
   useEffect(() => {
-    const initialAuctions = ensureCustomerAuctions();
-    const initialSession = getSession();
+    ensurePrototypeData();
 
-    const rafId = window.requestAnimationFrame(() => {
-      setAuctions(initialAuctions);
-      setSession(initialSession);
-    });
+    const refresh = () => {
+      settleDueAuctions();
+      const nextSession = getSession();
+      const nextUser = getSessionUser();
+      setSession(nextSession);
+      setAuctions(getAllAuctions());
 
-    return () => window.cancelAnimationFrame(rafId);
-  }, []);
+      if (nextUser?.role === "buyer") {
+        setNotifications(getNotificationsForUser(nextUser.id));
+        setWonItemCount(getEscrowCases().filter((item) => item.buyerId === nextUser.id).length);
+      } else {
+        setNotifications([]);
+        setWonItemCount(0);
+      }
 
-  useEffect(() => {
-    const timer = window.setInterval(() => {
       setNowMs(Date.now());
-    }, 1000);
-
-    return () => window.clearInterval(timer);
-  }, []);
-
-  useEffect(() => {
-    const handleStorage = (event: StorageEvent) => {
-      if (!event.key) return;
-      if (event.key === STORAGE_KEYS.customerAuctions) {
-        const latest = getCustomerAuctions();
-        if (latest.length > 0) {
-          setAuctions(latest);
-        }
-      }
-      if (event.key === STORAGE_KEYS.session) {
-        setSession(getSession());
-      }
     };
 
-    window.addEventListener("storage", handleStorage);
-    return () => window.removeEventListener("storage", handleStorage);
+    refresh();
+    const timer = window.setInterval(refresh, 1000);
+    window.addEventListener("storage", refresh);
+
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("storage", refresh);
+    };
   }, []);
 
-  const auctionsWithTime: AuctionWithTime[] = useMemo(() => {
+  const auctionsWithTime: AuctionView[] = useMemo(() => {
     return auctions.map((auction) => {
-      const msRemaining = auction.endsAtMs - nowMs;
-      const hasEnded = msRemaining <= 0;
-      const nextBid = auction.currentBidThb + auction.minIncrementThb;
-
+      const remaining = auction.endsAtMs - nowMs;
       return {
         ...auction,
-        hasEnded,
-        nextBid,
-        timeLabel: formatDuration(msRemaining),
+        hasEnded: remaining <= 0,
+        timeLabel: formatDuration(remaining),
+        nextBid: auction.currentBidThb + auction.minIncrementThb,
       };
     });
   }, [auctions, nowMs]);
 
-  const sessionRoute = session ? getMockCredentials(session.role).redirectTo : "/login";
+  const unreadCount = notifications.filter((item) => !item.read).length;
 
   return (
     <div className="min-h-screen bg-zinc-50 text-zinc-900">
       <header className="border-b border-zinc-200 bg-white">
-        <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-6 py-5">
+        <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-6 py-5 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
-              Customer View
-            </p>
-            <h1 className="text-lg font-semibold text-zinc-900">Auctions</h1>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">Buyer</p>
+            <h1 className="text-lg font-semibold text-zinc-900">Dashboard</h1>
           </div>
-          <nav className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleReset}
-              className="rounded-md border border-rose-200 px-4 py-2 text-sm font-semibold text-rose-700 transition hover:border-rose-300 hover:bg-rose-50"
-            >
-              Reset demo
-            </button>
+
+          <nav className="flex flex-wrap items-center gap-2">
+            <Link href="/customer" className={topNavLinkClass(true)}>
+              Dashboard
+            </Link>
+            <Link href="/customer/progress" className={topNavLinkClass(false)}>
+              Progress
+            </Link>
+            <Link href="/customer/payments" className={topNavLinkClass(false)}>
+              Payments
+            </Link>
+            <Link href="/customer/profile" className={topNavLinkClass(false)}>
+              Profile
+            </Link>
             <Link
               href="/"
-              className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-800 transition hover:border-zinc-400"
+              className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-700 transition hover:border-zinc-400"
             >
               Landing
             </Link>
-            {!session ? (
-              <Link
-                href="/login"
-                className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-800 transition hover:border-zinc-400"
-              >
-                Login
-              </Link>
-            ) : null}
             {session ? (
               <button
                 type="button"
@@ -133,109 +119,183 @@ export default function CustomerPage() {
                   clearSession();
                   setSession(null);
                 }}
-                className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800"
+                className="rounded-md border border-zinc-900 bg-zinc-900 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.2em] text-white transition hover:bg-zinc-800"
               >
-                Sign out
+                Sign Out
               </button>
-            ) : null}
+            ) : (
+              <Link
+                href="/login"
+                className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-700 transition hover:border-zinc-400"
+              >
+                Login
+              </Link>
+            )}
           </nav>
         </div>
       </header>
 
-      <main className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-6 py-10">
-        <section className="flex flex-col gap-2">
-          <h2 className="text-3xl font-semibold text-zinc-900 sm:text-4xl">
-            Select one auction.
-          </h2>
-          <p className="max-w-3xl text-sm leading-6 text-zinc-600">
-            This list shows only surface information. Click any item to see full
-            auction details and place a bid.
-          </p>
+      <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-6 py-10">
+        {session?.role !== "buyer" ? (
+          <section className="rounded-md border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-900">
+            Sign in as a buyer to access bidding, progress tracking, and payment pages.
+          </section>
+        ) : null}
+
+        <section className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="rounded-md border border-zinc-200 bg-white px-4 py-3">
+            <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Live auctions</p>
+            <p className="mt-1 text-2xl font-semibold text-zinc-900">
+              {auctionsWithTime.filter((item) => item.status === "live").length}
+            </p>
+          </div>
+          <Link
+            href="/customer/progress"
+            className="rounded-md border border-zinc-200 bg-white px-4 py-3 transition hover:border-zinc-300"
+          >
+            <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Won items</p>
+            <p className="mt-1 text-2xl font-semibold text-zinc-900">{wonItemCount}</p>
+          </Link>
+          <Link
+            href="/customer/payments"
+            className="rounded-md border border-zinc-200 bg-white px-4 py-3 transition hover:border-zinc-300"
+          >
+            <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Unread notifications</p>
+            <p className="mt-1 text-2xl font-semibold text-zinc-900">{unreadCount}</p>
+          </Link>
         </section>
 
-        {session ? (
-          <section className="flex flex-col gap-3 rounded-md border border-violet-200 bg-violet-50 px-5 py-4 text-sm text-violet-900 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="font-semibold">Signed in as {session.name}</p>
-              <p className="text-xs uppercase tracking-[0.2em] text-violet-700">
-                {session.role}
-              </p>
-              {session.role === "admin" ? (
-                <p className="mt-1 text-xs text-violet-700">
-                  Admin tools are available in auction details.
-                </p>
-              ) : null}
+        <section className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[1.15fr_0.85fr]">
+          <section className="rounded-md border border-zinc-200 bg-white p-5">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-zinc-900">Live Auctions</h2>
+              <span className="rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-700">
+                {auctionsWithTime.length}
+              </span>
             </div>
-            <Link
-              href={sessionRoute}
-              className="rounded-md border border-violet-200 bg-white px-4 py-2 text-sm font-semibold text-violet-700 transition hover:border-violet-300"
-            >
-              Open your dashboard
-            </Link>
+            <p className="mt-1 text-sm text-zinc-600">Open any item to place realtime bids.</p>
+
+            <div className="mt-4 grid grid-cols-1 gap-3">
+              {auctionsWithTime.length === 0 ? (
+                <p className="text-sm text-zinc-600">No auctions available.</p>
+              ) : (
+                auctionsWithTime.map((auction) => (
+                  <Link
+                    key={auction.id}
+                    href={`/customer/${auction.id}`}
+                    className="rounded-md border border-zinc-200 bg-zinc-50 p-4 transition hover:border-zinc-300"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-base font-semibold text-zinc-900">{auction.title}</p>
+                        <p className="mt-1 text-xs uppercase tracking-[0.2em] text-zinc-500">{auction.series}</p>
+                      </div>
+                      <span
+                        className={`rounded-md border px-2.5 py-1 text-xs font-semibold uppercase tracking-[0.18em] ${
+                          auction.status === "live"
+                            ? "border-emerald-300 bg-emerald-50 text-emerald-800"
+                            : auction.status === "paid_escrowed"
+                              ? "border-sky-300 bg-sky-50 text-sky-800"
+                              : auction.status === "payment_failed"
+                                ? "border-rose-300 bg-rose-50 text-rose-800"
+                                : "border-zinc-300 bg-zinc-100 text-zinc-700"
+                        }`}
+                      >
+                        {auction.status.replaceAll("_", " ")}
+                      </span>
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-3 gap-2">
+                      <div className="rounded-md border border-zinc-200 bg-white px-3 py-2">
+                        <p className="text-[11px] uppercase tracking-[0.2em] text-zinc-500">Current</p>
+                        <p className="mt-1 text-lg font-semibold text-zinc-900">{formatThb(auction.currentBidThb)}</p>
+                      </div>
+                      <div className="rounded-md border border-zinc-200 bg-white px-3 py-2">
+                        <p className="text-[11px] uppercase tracking-[0.2em] text-zinc-500">Next</p>
+                        <p className="mt-1 text-lg font-semibold text-zinc-900">{formatThb(auction.nextBid)}</p>
+                      </div>
+                      <div className="rounded-md border border-zinc-200 bg-white px-3 py-2">
+                        <p className="text-[11px] uppercase tracking-[0.2em] text-zinc-500">Time left</p>
+                        <p
+                          className={`mt-1 text-lg font-semibold ${
+                            auction.hasEnded ? "text-zinc-400" : "text-zinc-900"
+                          }`}
+                        >
+                          {auction.timeLabel}
+                        </p>
+                      </div>
+                    </div>
+                  </Link>
+                ))
+              )}
+            </div>
           </section>
-        ) : (
-          <section className="flex flex-col gap-2 rounded-md border border-zinc-200 bg-white px-5 py-4 text-sm text-zinc-700 sm:flex-row sm:items-center sm:justify-between">
-            <p className="font-semibold">You are not signed in.</p>
-            <Link
-              href="/login"
-              className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800"
-            >
-              Go to login
-            </Link>
-          </section>
-        )}
 
-        <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          {auctionsWithTime.map((auction) => (
-            <Link
-              key={auction.id}
-              href={`/customer/${auction.id}`}
-              className="group flex h-full flex-col rounded-md border border-zinc-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-md"
-            >
-              <div className="rounded-md border border-zinc-200 bg-zinc-100 p-4">
-                <div className="flex h-32 items-center justify-center rounded-md border border-dashed border-zinc-300 bg-zinc-50 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
-                  {auction.series}
-                </div>
+          <aside className="flex flex-col gap-6">
+            <section className="rounded-md border border-zinc-200 bg-white p-5">
+              <h2 className="text-lg font-semibold text-zinc-900">Quick Access</h2>
+              <p className="mt-1 text-sm text-zinc-600">Open focused pages instead of dashboard clutter.</p>
+              <div className="mt-3 grid grid-cols-1 gap-2">
+                <Link
+                  href="/customer/progress"
+                  className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 transition hover:border-zinc-400"
+                >
+                  Won Item Progress
+                </Link>
+                <Link
+                  href="/customer/payments"
+                  className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 transition hover:border-zinc-400"
+                >
+                  Payments
+                </Link>
+                <Link
+                  href="/customer/profile"
+                  className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 transition hover:border-zinc-400"
+                >
+                  Profile
+                </Link>
               </div>
+            </section>
 
-              <div className="mt-4 flex flex-1 flex-col gap-3">
-                <div>
-                  <h3 className="text-lg font-semibold text-zinc-900">{auction.title}</h3>
-                  <p className="mt-1 text-xs uppercase tracking-[0.2em] text-zinc-500">
-                    Seller • {auction.seller}
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="rounded-md border border-zinc-200 bg-white px-4 py-3">
-                    <p className="text-[11px] uppercase tracking-[0.2em] text-zinc-500">
-                      Current
-                    </p>
-                    <p className="mt-1 text-xl font-semibold text-zinc-900">
-                      {formatThb(auction.currentBidThb)}
-                    </p>
-                  </div>
-                  <div className="rounded-md border border-zinc-200 bg-white px-4 py-3">
-                    <p className="text-[11px] uppercase tracking-[0.2em] text-zinc-500">
-                      Time left
-                    </p>
-                    <p className={`mt-1 text-xl font-semibold ${auction.hasEnded ? "text-zinc-400" : "text-zinc-900"}`}>
-                      {auction.timeLabel}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between pt-1">
-                  <p className="text-sm font-semibold text-zinc-900">
-                    Next bid {formatThb(auction.nextBid)}
-                  </p>
-                  <span className="text-xs font-semibold uppercase tracking-[0.2em] text-violet-600 transition group-hover:translate-x-0.5">
-                    View details
-                  </span>
-                </div>
+            <section className="rounded-md border border-zinc-200 bg-white p-5">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-zinc-900">Recent Notifications</h2>
+                <span className="rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-700">
+                  {notifications.length}
+                </span>
               </div>
-            </Link>
-          ))}
+              <p className="mt-1 text-sm text-zinc-600">Outbid, payment, and account updates.</p>
+
+              <div className="mt-3 flex flex-col gap-2">
+                {notifications.length === 0 ? (
+                  <p className="text-sm text-zinc-600">No notifications yet.</p>
+                ) : (
+                  notifications.slice(0, 5).map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => {
+                        markNotificationRead(item.id);
+                        setNotifications((previous) =>
+                          previous.map((entry) =>
+                            entry.id === item.id ? { ...entry, read: true } : entry
+                          )
+                        );
+                      }}
+                      className={`rounded-md border px-3 py-2 text-left text-sm transition ${
+                        item.read
+                          ? "border-zinc-200 bg-zinc-50 text-zinc-700"
+                          : "border-sky-300 bg-sky-50 text-sky-900"
+                      }`}
+                    >
+                      <p className="font-semibold">{item.title}</p>
+                      <p className="mt-1 text-xs">{item.message}</p>
+                    </button>
+                  ))
+                )}
+              </div>
+            </section>
+          </aside>
         </section>
       </main>
     </div>

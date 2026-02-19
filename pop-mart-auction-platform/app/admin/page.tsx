@@ -1,745 +1,192 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
+import { AdminHeader } from "@/app/admin/_components/AdminHeader";
 import { formatThb } from "@/app/lib/format";
 import {
-  appendAdminLog,
   clearSession,
-  ensureAdminEscrow,
-  ensureAdminScreening,
-  ensureCustomerAuctions,
-  getAdminEscrow,
-  getAdminLog,
-  getAdminScreening,
-  getCustomerAuctions,
-  getMockCredentials,
-  getPendingListings,
+  ensurePrototypeData,
+  getAllAuctions,
+  getDisputes,
+  getEscrowCases,
+  getReportsSummary,
   getSession,
-  resetPrototypeData,
-  setAdminEscrow,
-  setAdminScreening,
-  setCustomerAuctions,
-  setPendingListings,
-  STORAGE_KEYS,
+  settleDueAuctions,
+  type ReportsSummary,
   type Session,
 } from "@/app/lib/storage";
-import type { AdminEscrowItem, AdminScreeningItem } from "@/app/mock/admin-data";
-import type { CustomerAuction } from "@/app/mock/customer-data";
-import type { SellerListing } from "@/app/lib/storage";
 
-type AdminTab = "screening" | "payment";
-
-type QueueItem = {
-  source: "admin" | "pending";
-  id: string;
-  title: string;
-  series: string;
-  seller: string;
-  startingPriceThb: number;
-  durationHours: number;
-  submittedLabel: string;
-  risk: "low" | "medium" | "high";
+type Snapshot = {
+  liveAuctions: number;
+  heldEscrows: number;
+  openDisputes: number;
 };
 
-const ESCROW_FLOW: AdminEscrowItem["status"][] = [
-  "payment secured",
-  "picked up from seller",
-  "authenticity check",
-  "delivered to buyer",
-];
-
-const ESCROW_NOTE: Record<AdminEscrowItem["status"], string> = {
-  "payment secured": "Buyer payment confirmed and secured.",
-  "picked up from seller": "Courier confirmed pickup from seller.",
-  "authenticity check": "Final authenticity check in progress.",
-  "delivered to buyer": "Delivered to buyer — ready for payout.",
+const EMPTY_REPORT: ReportsSummary = {
+  transactionCount: 0,
+  grossVolumeThb: 0,
+  serviceFeeRevenueThb: 0,
+  refundsThb: 0,
+  payoutsThb: 0,
+  failedPaymentCount: 0,
+  openDisputeCount: 0,
+  heldEscrowCount: 0,
 };
 
-function makeAuctionFromQueueItem(item: QueueItem, nowMs: number): CustomerAuction {
-  return {
-    id: `auction-${item.id}`,
-    title: item.title,
-    series: item.series,
-    seller: item.seller,
-    currentBidThb: item.startingPriceThb,
-    minIncrementThb: 100,
-    bids: 0,
-    endsAtMs: nowMs + item.durationHours * 60 * 60 * 1000,
-  };
-}
-
-function limitAuctions(nextAuction: CustomerAuction, existing: CustomerAuction[]) {
-  const combined = [nextAuction, ...existing];
-  combined.sort((a, b) => a.endsAtMs - b.endsAtMs);
-  return combined.slice(0, 2);
-}
-
-function riskTone(risk: QueueItem["risk"]) {
-  if (risk === "high") return "border-rose-300 bg-rose-50 text-rose-800";
-  if (risk === "medium") return "border-amber-300 bg-amber-50 text-amber-800";
-  return "border-emerald-300 bg-emerald-50 text-emerald-800";
-}
-
-function escrowTone(status: AdminEscrowItem["status"]) {
-  if (status === "authenticity check") return "border-sky-300 bg-sky-50 text-sky-800";
-  if (status === "picked up from seller") return "border-amber-300 bg-amber-50 text-amber-800";
-  if (status === "delivered to buyer") return "border-zinc-400 bg-zinc-100 text-zinc-800";
-  return "border-emerald-300 bg-emerald-50 text-emerald-800";
-}
-
-function toQueueItemFromAdmin(item: AdminScreeningItem): QueueItem {
-  return {
-    source: "admin",
-    id: item.id,
-    title: item.title,
-    series: "Reviewed",
-    seller: item.seller,
-    startingPriceThb: item.startingPriceThb,
-    durationHours: item.durationHours,
-    submittedLabel: item.submittedLabel,
-    risk: item.risk,
-  };
-}
-
-function toQueueItemFromPending(item: SellerListing): QueueItem {
-  return {
-    source: "pending",
-    id: item.id,
-    title: item.title,
-    series: item.series,
-    seller: item.seller,
-    startingPriceThb: item.startingPriceThb,
-    durationHours: item.durationHours,
-    submittedLabel: new Date(item.submittedAtMs).toLocaleTimeString(),
-    risk: "medium",
-  };
-}
+const EMPTY_SNAPSHOT: Snapshot = {
+  liveAuctions: 0,
+  heldEscrows: 0,
+  openDisputes: 0,
+};
 
 export default function AdminPage() {
-  const [screening, setScreening] = useState<AdminScreeningItem[]>([]);
-  const [pendingListings, setPending] = useState<SellerListing[]>([]);
-  const [escrow, setEscrow] = useState<AdminEscrowItem[]>([]);
-  const [, setAuctions] = useState<CustomerAuction[]>([]);
-  const [, setAdminLog] = useState<string[]>([]);
-  const [nowMs, setNowMs] = useState(0);
   const [session, setSession] = useState<Session | null>(null);
-  const [queueFilter, setQueueFilter] = useState<"all" | "seller" | "platform">("all");
-  const [activeTab, setActiveTab] = useState<AdminTab>("screening");
-  const [selectedQueueId, setSelectedQueueId] = useState<string | null>(null);
-  const [selectedEscrowId, setSelectedEscrowId] = useState<string | null>(null);
-
-  const handleReset = () => {
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm("Reset demo data and timers? This clears bids, listings, and logs.")
-    ) {
-      return;
-    }
-    resetPrototypeData();
-    const nextScreening = ensureAdminScreening();
-    const nextEscrow = ensureAdminEscrow();
-    const nextAuctions = ensureCustomerAuctions();
-    const nextPending = getPendingListings();
-    const nextLog = getAdminLog();
-    const nextSession = getSession();
-    const nextQueue = [
-      ...nextPending.map(toQueueItemFromPending),
-      ...nextScreening.map(toQueueItemFromAdmin),
-    ];
-
-    setScreening(nextScreening);
-    setEscrow(nextEscrow);
-    setAuctions(nextAuctions);
-    setPending(nextPending);
-    setAdminLog(nextLog);
-    setNowMs(Date.now());
-    setSession(nextSession);
-    setSelectedQueueId(nextQueue[0]?.id ?? null);
-    setSelectedEscrowId(nextEscrow[0]?.id ?? null);
-  };
+  const [report, setReport] = useState<ReportsSummary>(EMPTY_REPORT);
+  const [snapshot, setSnapshot] = useState<Snapshot>(EMPTY_SNAPSHOT);
 
   useEffect(() => {
-    const initialScreening = ensureAdminScreening();
-    const initialEscrow = ensureAdminEscrow();
-    const initialAuctions = ensureCustomerAuctions();
-    const initialPending = getPendingListings();
-    const initialLog = getAdminLog();
-    const initialSession = getSession();
+    ensurePrototypeData();
 
-    const initialQueue = [
-      ...initialPending.map(toQueueItemFromPending),
-      ...initialScreening.map(toQueueItemFromAdmin),
-    ];
+    const refresh = () => {
+      settleDueAuctions();
+      const auctions = getAllAuctions();
+      const cases = getEscrowCases();
+      const disputes = getDisputes();
 
-    const rafId = window.requestAnimationFrame(() => {
-      setScreening(initialScreening);
-      setEscrow(initialEscrow);
-      setAuctions(initialAuctions);
-      setPending(initialPending);
-      setAdminLog(initialLog);
-      setNowMs(Date.now());
-      setSession(initialSession);
-      setSelectedQueueId(initialQueue[0]?.id ?? null);
-      setSelectedEscrowId(initialEscrow[0]?.id ?? null);
-    });
+      setSession(getSession());
+      setReport(getReportsSummary());
+      setSnapshot({
+        liveAuctions: auctions.filter((item) => item.status === "live").length,
+        heldEscrows: cases.filter((item) => item.escrowStatus === "held").length,
+        openDisputes: disputes.filter((item) => item.status === "open").length,
+      });
+    };
 
-    const timer = window.setInterval(() => {
-      setNowMs(Date.now());
-    }, 1000);
+    refresh();
+    const timer = window.setInterval(refresh, 1200);
+    window.addEventListener("storage", refresh);
 
     return () => {
-      window.cancelAnimationFrame(rafId);
       window.clearInterval(timer);
+      window.removeEventListener("storage", refresh);
     };
   }, []);
-
-  useEffect(() => {
-    const handleStorage = (event: StorageEvent) => {
-      if (!event.key) return;
-      if (event.key === STORAGE_KEYS.adminScreening) {
-        setScreening(getAdminScreening());
-      }
-      if (event.key === STORAGE_KEYS.pendingListings) {
-        setPending(getPendingListings());
-      }
-      if (event.key === STORAGE_KEYS.adminEscrow) {
-        setEscrow(getAdminEscrow());
-      }
-      if (event.key === STORAGE_KEYS.customerAuctions) {
-        setAuctions(getCustomerAuctions());
-      }
-      if (event.key === STORAGE_KEYS.adminLog) {
-        setAdminLog(getAdminLog());
-      }
-      if (event.key === STORAGE_KEYS.session) {
-        setSession(getSession());
-      }
-    };
-
-    window.addEventListener("storage", handleStorage);
-    return () => window.removeEventListener("storage", handleStorage);
-  }, []);
-
-  const queue: QueueItem[] = useMemo(() => {
-    const fromAdmin = screening.map(toQueueItemFromAdmin);
-    const fromPending = pendingListings.map(toQueueItemFromPending);
-    return [...fromPending, ...fromAdmin];
-  }, [pendingListings, screening]);
-
-  const filteredQueue = useMemo(() => {
-    if (queueFilter === "seller") {
-      return queue.filter((item) => item.source === "pending");
-    }
-    if (queueFilter === "platform") {
-      return queue.filter((item) => item.source === "admin");
-    }
-    return queue;
-  }, [queue, queueFilter]);
-
-  const heldThb = useMemo(
-    () => escrow.reduce((sum, item) => sum + item.amountThb, 0),
-    [escrow]
-  );
-
-  const sessionRoute = session ? getMockCredentials(session.role).redirectTo : "/login";
-
-  const selectedQueueItem =
-    filteredQueue.find((item) => item.id === selectedQueueId) ?? filteredQueue[0] ?? null;
-  const selectedEscrowItem =
-    escrow.find((item) => item.id === selectedEscrowId) ?? escrow[0] ?? null;
-
-  useEffect(() => {
-    if (filteredQueue.length === 0) {
-      if (selectedQueueId === null) return;
-      const rafId = window.requestAnimationFrame(() => setSelectedQueueId(null));
-      return () => window.cancelAnimationFrame(rafId);
-    }
-    if (selectedQueueId && filteredQueue.some((item) => item.id === selectedQueueId)) {
-      return;
-    }
-    const nextId = filteredQueue[0].id;
-    const rafId = window.requestAnimationFrame(() => setSelectedQueueId(nextId));
-    return () => window.cancelAnimationFrame(rafId);
-  }, [filteredQueue, selectedQueueId]);
-
-  useEffect(() => {
-    if (escrow.length === 0) {
-      if (selectedEscrowId === null) return;
-      const rafId = window.requestAnimationFrame(() => setSelectedEscrowId(null));
-      return () => window.cancelAnimationFrame(rafId);
-    }
-    if (selectedEscrowId && escrow.some((item) => item.id === selectedEscrowId)) {
-      return;
-    }
-    const nextId = escrow[0].id;
-    const rafId = window.requestAnimationFrame(() => setSelectedEscrowId(nextId));
-    return () => window.cancelAnimationFrame(rafId);
-  }, [escrow, selectedEscrowId]);
-
-  function approveItem(item: QueueItem) {
-    if (nowMs === 0) {
-      return;
-    }
-    const newAuction = makeAuctionFromQueueItem(item, nowMs);
-
-    const existingAuctions = ensureCustomerAuctions();
-    const nextAuctions = limitAuctions(newAuction, existingAuctions);
-    setCustomerAuctions(nextAuctions);
-    setAuctions(nextAuctions);
-
-    if (item.source === "pending") {
-      const nextPending = pendingListings.filter((entry) => entry.id !== item.id);
-      setPendingListings(nextPending);
-      setPending(nextPending);
-      const nextLog = appendAdminLog(`Approved seller listing: ${item.title}`);
-      setAdminLog(nextLog);
-      return;
-    }
-
-    const nextScreening = screening.filter((entry) => entry.id !== item.id);
-    setAdminScreening(nextScreening);
-    setScreening(nextScreening);
-    const nextLog = appendAdminLog(`Approved screened item: ${item.title}`);
-    setAdminLog(nextLog);
-  }
-
-  function rejectItem(item: QueueItem) {
-    if (item.source === "pending") {
-      const nextPending = pendingListings.filter((entry) => entry.id !== item.id);
-      setPendingListings(nextPending);
-      setPending(nextPending);
-      const nextLog = appendAdminLog(`Rejected seller listing: ${item.title}`);
-      setAdminLog(nextLog);
-      return;
-    }
-
-    const nextScreening = screening.filter((entry) => entry.id !== item.id);
-    setAdminScreening(nextScreening);
-    setScreening(nextScreening);
-    const nextLog = appendAdminLog(`Rejected screened item: ${item.title}`);
-    setAdminLog(nextLog);
-  }
-
-  function advanceEscrow(id: string) {
-    const nextEscrow = escrow.map((item) => {
-      if (item.id !== id) return item;
-      const currentIndex = ESCROW_FLOW.indexOf(item.status);
-      const nextStatus = ESCROW_FLOW[Math.min(currentIndex + 1, ESCROW_FLOW.length - 1)];
-      return {
-        ...item,
-        status: nextStatus,
-        note: ESCROW_NOTE[nextStatus],
-      };
-    });
-
-    setAdminEscrow(nextEscrow);
-    setEscrow(nextEscrow);
-    const target = nextEscrow.find((item) => item.id === id);
-    if (target) {
-      const nextLog = appendAdminLog(`Fulfillment updated: ${target.title} → ${target.status}`);
-      setAdminLog(nextLog);
-    }
-  }
-
-  const selectedEscrowIndex = selectedEscrowItem
-    ? ESCROW_FLOW.indexOf(selectedEscrowItem.status)
-    : -1;
 
   return (
     <div className="min-h-screen bg-zinc-50 text-zinc-900">
-      <header className="border-b border-zinc-200 bg-white">
-        <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-6 py-5">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
-              Admin View
-            </p>
-            <h1 className="text-lg font-semibold text-zinc-900">Operations</h1>
-          </div>
-          <nav className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleReset}
-              className="rounded-md border border-rose-200 px-4 py-2 text-sm font-semibold text-rose-700 transition hover:border-rose-300 hover:bg-rose-50"
-            >
-              Reset demo
-            </button>
-            <Link
-              href="/"
-              className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-800 transition hover:border-zinc-400"
-            >
-              Landing
-            </Link>
-            {!session ? (
-              <Link
-                href="/login"
-                className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-800 transition hover:border-zinc-400"
-              >
-                Login
-              </Link>
-            ) : null}
-            {session ? (
-              <button
-                type="button"
-                onClick={() => {
-                  clearSession();
-                  setSession(null);
-                }}
-                className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800"
-              >
-                Sign out
-              </button>
-            ) : null}
-          </nav>
-        </div>
-      </header>
+      <AdminHeader
+        active="dashboard"
+        title="Dashboard"
+        subtitle="Control room overview with focused pages for each admin workflow."
+        session={session}
+        onSignOut={() => {
+          clearSession();
+          setSession(null);
+        }}
+      />
 
-      <main className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-6 py-10">
-        <section className="flex flex-col gap-2">
-          <h2 className="text-3xl font-semibold text-zinc-900 sm:text-4xl">
-            Review requests, then track fulfillment.
-          </h2>
-          <p className="max-w-3xl text-sm leading-6 text-zinc-600">
-            The list stays lean. Details appear when you select a card.
-          </p>
-        </section>
-
-        <section className="flex flex-col gap-3 rounded-md border border-zinc-200 bg-white px-5 py-4 text-sm text-zinc-700 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="font-semibold text-zinc-900">Moderate live auctions</p>
-            <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">
-              Open the auction list to end, extend, or remove listings.
-            </p>
-          </div>
-          <Link
-            href="/customer"
-            className="rounded-md border border-zinc-300 bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-800 transition hover:border-zinc-400"
-          >
-            View auctions
-          </Link>
-        </section>
-
-        {session ? (
-          <section className="flex flex-col gap-3 rounded-md border border-zinc-200 bg-white px-5 py-4 text-sm text-zinc-800 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="font-semibold">Signed in as {session.name}</p>
-              <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">
-                {session.role}
-              </p>
-            </div>
-            <Link
-              href={sessionRoute}
-              className="rounded-md border border-zinc-300 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-800 transition hover:border-zinc-400"
-            >
-              Dashboard
-            </Link>
+      <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-6 py-10">
+        {session?.role !== "admin" ? (
+          <section className="rounded-md border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-900">
+            Sign in as admin to run monitoring, verification, disputes, moderation, and reporting.
           </section>
         ) : null}
 
-        <section className="flex flex-wrap gap-2">
-          {[
-            { key: "screening" as const, label: "Requests", count: queue.length },
-            { key: "payment" as const, label: "Fulfillment", count: escrow.length },
-          ].map((tab) => (
-            <button
-              key={tab.key}
-              type="button"
-              onClick={() => setActiveTab(tab.key)}
-              className={`rounded-md border px-5 py-2 text-xs font-semibold uppercase tracking-[0.2em] transition ${
-                activeTab === tab.key
-                  ? "border-violet-300 bg-violet-50 text-violet-700"
-                  : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-400"
-              }`}
-            >
-              {tab.label} ({tab.count})
-            </button>
-          ))}
+        <section className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+          <Link
+            href="/admin/monitor"
+            className="rounded-md border border-zinc-200 bg-white px-4 py-3 transition hover:border-zinc-300"
+          >
+            <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Live auctions</p>
+            <p className="mt-1 text-2xl font-semibold text-zinc-900">{snapshot.liveAuctions}</p>
+          </Link>
+          <Link
+            href="/admin/verification"
+            className="rounded-md border border-zinc-200 bg-white px-4 py-3 transition hover:border-zinc-300"
+          >
+            <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Held escrows</p>
+            <p className="mt-1 text-2xl font-semibold text-zinc-900">{snapshot.heldEscrows}</p>
+          </Link>
+          <Link
+            href="/admin/disputes"
+            className="rounded-md border border-zinc-200 bg-white px-4 py-3 transition hover:border-zinc-300"
+          >
+            <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Open disputes</p>
+            <p className="mt-1 text-2xl font-semibold text-zinc-900">{snapshot.openDisputes}</p>
+          </Link>
+          <Link
+            href="/admin/reports"
+            className="rounded-md border border-zinc-200 bg-white px-4 py-3 transition hover:border-zinc-300"
+          >
+            <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Failed payments</p>
+            <p className="mt-1 text-2xl font-semibold text-zinc-900">{report.failedPaymentCount}</p>
+          </Link>
         </section>
 
-        {activeTab === "screening" ? (
-          <section className="rounded-md border border-zinc-200 bg-white p-6">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-              <div>
-                <h3 className="text-lg font-semibold text-zinc-900">Auction requests</h3>
-                <p className="mt-1 text-sm text-zinc-600">
-                  Select a request to review its details.
-                </p>
-              </div>
-              <div className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-600">
-                {filteredQueue.length}
-              </div>
+        <section className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <section className="rounded-md border border-zinc-200 bg-white p-5">
+            <h2 className="text-lg font-semibold text-zinc-900">Quick Actions</h2>
+            <p className="mt-1 text-sm text-zinc-600">Open a focused page for each requirement area.</p>
+
+            <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <Link
+                href="/admin/monitor"
+                className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 transition hover:border-zinc-400"
+              >
+                Live Monitoring
+              </Link>
+              <Link
+                href="/admin/verification"
+                className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 transition hover:border-zinc-400"
+              >
+                Escrow and Verification
+              </Link>
+              <Link
+                href="/admin/disputes"
+                className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 transition hover:border-zinc-400"
+              >
+                Dispute Resolution
+              </Link>
+              <Link
+                href="/admin/users"
+                className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 transition hover:border-zinc-400"
+              >
+                User Moderation
+              </Link>
+              <Link
+                href="/admin/reports"
+                className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 transition hover:border-zinc-400 sm:col-span-2"
+              >
+                Transaction and Revenue Reports
+              </Link>
             </div>
-
-            <div className="mt-4 flex flex-wrap gap-2">
-              {[
-                { key: "all", label: "All" },
-                { key: "seller", label: "Seller" },
-                { key: "platform", label: "Platform" },
-              ].map((filter) => (
-                <button
-                  key={filter.key}
-                  type="button"
-                  onClick={() => setQueueFilter(filter.key as typeof queueFilter)}
-                  className={`rounded-md border px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] transition ${
-                    queueFilter === filter.key
-                      ? "border-violet-300 bg-violet-50 text-violet-700"
-                      : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-400"
-                  }`}
-                >
-                  {filter.label}
-                </button>
-              ))}
-            </div>
-
-            {filteredQueue.length === 0 ? (
-              <p className="mt-6 text-sm text-zinc-600">No items to review.</p>
-            ) : (
-              <div className="mt-6 grid grid-cols-1 gap-5 lg:grid-cols-[0.95fr_1.05fr]">
-                <div className="flex flex-col gap-3">
-                  {filteredQueue.map((item) => {
-                    const isSelected = item.id === selectedQueueItem?.id;
-
-                    return (
-                      <button
-                        key={`${item.source}-${item.id}`}
-                        type="button"
-                        onClick={() => setSelectedQueueId(item.id)}
-                        className={`rounded-md border p-4 text-left transition ${
-                          isSelected
-                            ? "border-zinc-900 bg-zinc-900 text-white"
-                            : "border-zinc-200 bg-zinc-50 text-zinc-900 hover:border-zinc-300"
-                        }`}
-                      >
-                        <p className="text-base font-semibold">{item.title}</p>
-                        <p
-                          className={`mt-1 text-xs uppercase tracking-[0.2em] ${
-                            isSelected ? "text-white/70" : "text-zinc-500"
-                          }`}
-                        >
-                          {item.series} • {item.seller}
-                        </p>
-                        <div className="mt-3 flex items-center justify-between">
-                          <div>
-                            <p
-                              className={`text-[11px] uppercase tracking-[0.2em] ${
-                                isSelected ? "text-white/70" : "text-zinc-500"
-                              }`}
-                            >
-                              Start
-                            </p>
-                            <p className="mt-1 text-lg font-semibold">
-                              {formatThb(item.startingPriceThb)}
-                            </p>
-                          </div>
-                          <span
-                            className={`rounded-md border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${
-                              isSelected
-                                ? "border-white/30 bg-white/10 text-white"
-                                : riskTone(item.risk)
-                            }`}
-                          >
-                            {item.risk}
-                          </span>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {selectedQueueItem ? (
-                  <div className="rounded-md border border-zinc-200 bg-zinc-50 p-5">
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                      <div>
-                        <p className="text-lg font-semibold text-zinc-900">{selectedQueueItem.title}</p>
-                        <p className="mt-1 text-xs uppercase tracking-[0.2em] text-zinc-500">
-                          {selectedQueueItem.series} • {selectedQueueItem.seller}
-                        </p>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="rounded-md border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-700">
-                          {selectedQueueItem.source === "pending" ? "seller" : "platform"}
-                        </span>
-                        <span
-                          className={`rounded-md border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${riskTone(
-                            selectedQueueItem.risk
-                          )}`}
-                        >
-                          {selectedQueueItem.risk}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="mt-4 grid grid-cols-2 gap-3">
-                      <div className="rounded-md border border-zinc-200 bg-white px-4 py-3">
-                        <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Start price</p>
-                        <p className="mt-1 text-xl font-semibold text-zinc-900">
-                          {formatThb(selectedQueueItem.startingPriceThb)}
-                        </p>
-                      </div>
-                      <div className="rounded-md border border-zinc-200 bg-white px-4 py-3">
-                        <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Duration</p>
-                        <p className="mt-1 text-xl font-semibold text-zinc-900">
-                          {selectedQueueItem.durationHours}h
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="mt-3 rounded-md border border-zinc-200 bg-white px-4 py-3 text-xs uppercase tracking-[0.2em] text-zinc-500">
-                      Submitted {selectedQueueItem.submittedLabel}
-                    </div>
-
-                    <div className="mt-5 grid grid-cols-2 gap-3">
-                      <button
-                        type="button"
-                        onClick={() => approveItem(selectedQueueItem)}
-                        disabled={nowMs === 0}
-                        className="rounded-md bg-zinc-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
-                      >
-                        Approve request
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => rejectItem(selectedQueueItem)}
-                        className="rounded-md border border-zinc-300 px-4 py-3 text-sm font-semibold text-zinc-900 transition hover:border-zinc-400"
-                      >
-                        Reject request
-                      </button>
-                    </div>
-
-                    <p className="mt-3 text-xs text-zinc-600">
-                      Approval publishes the auction and keeps the buyer view capped at two items.
-                    </p>
-                  </div>
-                ) : null}
-              </div>
-            )}
           </section>
-        ) : (
-          <section className="rounded-md border border-zinc-200 bg-white p-6">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-              <div>
-                <h3 className="text-lg font-semibold text-zinc-900">Fulfillment status</h3>
-                <p className="mt-1 text-sm text-zinc-600">
-                  Select a case to view its delivery status.
-                </p>
+
+          <section className="rounded-md border border-zinc-200 bg-white p-5">
+            <h2 className="text-lg font-semibold text-zinc-900">Reporting Snapshot</h2>
+            <p className="mt-1 text-sm text-zinc-600">Current totals from the mock ledger.</p>
+
+            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2">
+                <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Gross volume</p>
+                <p className="mt-1 text-lg font-semibold text-zinc-900">{formatThb(report.grossVolumeThb)}</p>
               </div>
-              <div className="flex items-center gap-2">
-                <div className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-600">
-                  Cases {escrow.length}
-                </div>
-                <div className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-600">
-                  Total value {formatThb(heldThb)}
-                </div>
+              <div className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2">
+                <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Fee revenue</p>
+                <p className="mt-1 text-lg font-semibold text-zinc-900">{formatThb(report.serviceFeeRevenueThb)}</p>
+              </div>
+              <div className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2">
+                <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Refunds</p>
+                <p className="mt-1 text-lg font-semibold text-zinc-900">{formatThb(report.refundsThb)}</p>
+              </div>
+              <div className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2">
+                <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Payouts</p>
+                <p className="mt-1 text-lg font-semibold text-zinc-900">{formatThb(report.payoutsThb)}</p>
               </div>
             </div>
-
-            {escrow.length === 0 ? (
-              <p className="mt-6 text-sm text-zinc-600">No fulfillment cases yet.</p>
-            ) : (
-              <div className="mt-6 grid grid-cols-1 gap-5 lg:grid-cols-[0.95fr_1.05fr]">
-                <div className="flex flex-col gap-3">
-                  {escrow.map((item) => {
-                    const isSelected = item.id === selectedEscrowItem?.id;
-
-                    return (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => setSelectedEscrowId(item.id)}
-                        className={`rounded-md border p-4 text-left transition ${
-                          isSelected
-                            ? "border-zinc-900 bg-zinc-900 text-white"
-                            : "border-zinc-200 bg-zinc-50 text-zinc-900 hover:border-zinc-300"
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <p className="text-base font-semibold">{item.title}</p>
-                            <p
-                              className={`mt-1 text-xs uppercase tracking-[0.2em] ${
-                                isSelected ? "text-white/70" : "text-zinc-500"
-                              }`}
-                            >
-                              {item.buyer} • {item.seller}
-                            </p>
-                          </div>
-                          <span
-                            className={`rounded-md border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${
-                              isSelected
-                                ? "border-white/30 bg-white/10 text-white"
-                                : escrowTone(item.status)
-                            }`}
-                          >
-                            {item.status}
-                          </span>
-                        </div>
-                        <p className="mt-4 text-2xl font-semibold">{formatThb(item.amountThb)}</p>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {selectedEscrowItem ? (
-                  <div className="rounded-md border border-zinc-200 bg-zinc-50 p-5">
-                    <div className="flex flex-col gap-2">
-                      <p className="text-lg font-semibold text-zinc-900">{selectedEscrowItem.title}</p>
-                      <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">
-                        Buyer {selectedEscrowItem.buyer} • Seller {selectedEscrowItem.seller}
-                      </p>
-                    </div>
-
-                    <div className="mt-4 grid grid-cols-2 gap-3">
-                      <div className="rounded-md border border-zinc-200 bg-white px-4 py-3">
-                        <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Order value</p>
-                        <p className="mt-1 text-xl font-semibold text-zinc-900">
-                          {formatThb(selectedEscrowItem.amountThb)}
-                        </p>
-                      </div>
-                      <div className="rounded-md border border-zinc-200 bg-white px-4 py-3">
-                        <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Status</p>
-                        <p className="mt-1 text-xl font-semibold text-zinc-900">
-                          {selectedEscrowItem.status}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="mt-4 flex flex-col gap-2">
-                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
-                        Progress
-                      </p>
-                      <div className="flex flex-wrap gap-2">
-                        {ESCROW_FLOW.map((step, index) => (
-                          <span
-                            key={step}
-                            className={`rounded-md border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${
-                              index <= selectedEscrowIndex
-                                ? "border-zinc-900 bg-zinc-900 text-white"
-                                : "border-zinc-300 bg-white text-zinc-600"
-                            }`}
-                          >
-                            {step}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="mt-4 rounded-md border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-700">
-                      {selectedEscrowItem.note}
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => advanceEscrow(selectedEscrowItem.id)}
-                      className="mt-5 w-full rounded-md bg-zinc-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-zinc-800"
-                    >
-                      Advance case
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-            )}
           </section>
-        )}
+        </section>
       </main>
     </div>
   );
