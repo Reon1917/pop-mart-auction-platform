@@ -239,10 +239,10 @@ export default function SellerAuctionsPage() {
                 </p>
 
                 <div className="mt-4 flex flex-col gap-2">
-                  {auctionMonitor.length === 0 ? (
+                  {liveAuctions.length === 0 ? (
                     <p className="text-sm text-zinc-600">No approved auctions yet.</p>
                   ) : (
-                    auctionMonitor.map((item) => (
+                    liveAuctions.map((item) => (
                       <div key={item.id} className="rounded-md border border-zinc-200 bg-zinc-50 p-3">
                         <div className="flex items-start justify-between gap-2">
                           <div>

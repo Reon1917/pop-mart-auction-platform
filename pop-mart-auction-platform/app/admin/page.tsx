@@ -32,8 +32,6 @@ const EMPTY_REPORT: ReportsSummary = {
   failedPaymentCount: 0,
   openDisputeCount: 0,
   heldEscrowCount: 0,
-  gatewayAttemptCount: 0,
-  gatewayFailureCount: 0,
 };
 
 const EMPTY_SNAPSHOT: Snapshot = {

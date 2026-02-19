@@ -83,6 +83,10 @@ const roleColors: Record<UserRole, string> = {
   admin: "bg-amber-100 text-amber-700",
 };
 
+function isUserRole(value: string | null): value is UserRole {
+  return value === "buyer" || value === "seller" || value === "admin";
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const [role, setRole] = useState<UserRole>("buyer");
@@ -108,6 +112,25 @@ export default function LoginPage() {
     });
     return () => window.cancelAnimationFrame(rafId);
   }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const autoLogin = params.get("autologin");
+    const roleParam = params.get("role");
+    if (autoLogin !== "1" || !isUserRole(roleParam)) {
+      return;
+    }
+
+    const creds = getMockCredentials(roleParam);
+    const nextSession = {
+      role: creds.role,
+      name: creds.name,
+      email: creds.email,
+    } as const;
+
+    setSession(nextSession);
+    router.replace(creds.redirectTo);
+  }, [router]);
 
   function applyRole(targetRole: UserRole) {
     const creds = getMockCredentials(targetRole);
@@ -148,6 +171,32 @@ export default function LoginPage() {
       text: `Signed in as ${creds.name}. Redirecting...`,
     });
     router.push(creds.redirectTo);
+  }
+
+  function openRoleTab(roleToOpen: UserRole) {
+    const url = `/login?autologin=1&role=${roleToOpen}`;
+    const target = `pm_${roleToOpen}_tab`;
+    return Boolean(window.open(url, target));
+  }
+
+  function openAllRoleTabs() {
+    // Open seller and admin in their own named tabs.
+    const sellerOpened = openRoleTab("seller");
+    const adminOpened = openRoleTab("admin");
+
+    if (sellerOpened && adminOpened) {
+      setMessage({
+        tone: "success",
+        text: "Seller/Admin tabs opened. This tab will continue as Buyer.",
+      });
+      window.location.assign("/login?autologin=1&role=buyer");
+      return;
+    }
+
+    setMessage({
+      tone: "warning",
+      text: "Popup blocker limited new tabs. Use the per-role buttons below, then open Admin > Monitor for floating demo controls.",
+    });
   }
 
   const messageStyles = {
@@ -298,6 +347,36 @@ export default function LoginPage() {
                   </button>
                 ))}
               </div>
+              <button
+                type="button"
+                onClick={openAllRoleTabs}
+                className="mt-4 w-full rounded-md border border-zinc-900 bg-zinc-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-zinc-800"
+              >
+                Open Buyer + Seller + Admin Tabs
+              </button>
+              <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <button
+                  type="button"
+                  onClick={() => openRoleTab("buyer")}
+                  className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-700 transition hover:border-zinc-400"
+                >
+                  Open Buyer Tab
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openRoleTab("seller")}
+                  className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-700 transition hover:border-zinc-400"
+                >
+                  Open Seller Tab
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openRoleTab("admin")}
+                  className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-700 transition hover:border-zinc-400"
+                >
+                  Open Admin Tab
+                </button>
+              </div>
             </div>
           </Card>
 
@@ -321,7 +400,7 @@ export default function LoginPage() {
             <Card padding="lg">
               <CardHeader
                 title="Demo Accounts"
-                subtitle="These are the mock credentials stored in localStorage."
+                subtitle="Mock account data is shared in localStorage, with role session isolated per tab."
               />
               <div className="space-y-3">
                 {credentialList.map((item) => (

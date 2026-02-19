@@ -7,6 +7,7 @@ import {
   ensurePrototypeData,
   getAllUsers,
   getSession,
+  getSessionUser,
   setUserStatus,
   settleDueAuctions,
   type Session,
@@ -20,6 +21,7 @@ type UiMessage = {
 
 export default function AdminUsersPage() {
   const [session, setSession] = useState<Session | null>(null);
+  const [adminUserId, setAdminUserId] = useState<string | null>(null);
   const [users, setUsers] = useState<UserAccount[]>([]);
   const [message, setMessage] = useState<UiMessage>({
     tone: "neutral",
@@ -31,7 +33,10 @@ export default function AdminUsersPage() {
 
     const refresh = () => {
       settleDueAuctions();
-      setSession(getSession());
+      const nextSession = getSession();
+      const nextUser = getSessionUser();
+      setSession(nextSession);
+      setAdminUserId(nextUser?.role === "admin" ? nextUser.id : null);
       setUsers(getAllUsers());
     };
 
@@ -46,13 +51,18 @@ export default function AdminUsersPage() {
   }, []);
 
   function handleUserStatus(userId: string, status: "active" | "suspended" | "banned") {
-    const result = setUserStatus(userId, status, "Updated by admin moderation.");
+    if (!canAdminAct || !adminUserId) {
+      setMessage({ tone: "warning", text: "Sign in as admin to update user status." });
+      return;
+    }
+    const result = setUserStatus(userId, status, "Updated by admin moderation.", adminUserId);
     setMessage({ tone: result.ok ? "success" : "warning", text: result.message });
   }
 
   const nonAdminUsers = users.filter((item) => item.role !== "admin");
   const suspendedCount = nonAdminUsers.filter((item) => item.status === "suspended").length;
   const bannedCount = nonAdminUsers.filter((item) => item.status === "banned").length;
+  const canAdminAct = session?.role === "admin" && Boolean(adminUserId);
 
   const messageToneClass =
     message.tone === "success"
@@ -75,6 +85,12 @@ export default function AdminUsersPage() {
       />
 
       <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-6 py-10">
+        {!canAdminAct ? (
+          <section className="rounded-md border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-900">
+            Sign in as admin to use moderation controls.
+          </section>
+        ) : null}
+
         <section className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <div className="rounded-md border border-zinc-200 bg-white px-4 py-3">
             <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Accounts</p>
@@ -110,6 +126,7 @@ export default function AdminUsersPage() {
                     <button
                       type="button"
                       onClick={() => handleUserStatus(item.id, "active")}
+                      disabled={!canAdminAct}
                       className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-800 transition hover:border-zinc-400"
                     >
                       Active
@@ -117,6 +134,7 @@ export default function AdminUsersPage() {
                     <button
                       type="button"
                       onClick={() => handleUserStatus(item.id, "suspended")}
+                      disabled={!canAdminAct}
                       className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-800 transition hover:border-zinc-400"
                     >
                       Suspend
@@ -124,6 +142,7 @@ export default function AdminUsersPage() {
                     <button
                       type="button"
                       onClick={() => handleUserStatus(item.id, "banned")}
+                      disabled={!canAdminAct}
                       className="rounded-md border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-rose-700 transition hover:border-rose-400"
                     >
                       Ban

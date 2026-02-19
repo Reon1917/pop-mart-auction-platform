@@ -6,12 +6,10 @@ import { formatThb } from "@/app/lib/format";
 import {
   clearSession,
   ensurePrototypeData,
-  getPaymentGatewayLogs,
   getReportsSummary,
   getSession,
   getTransactions,
   settleDueAuctions,
-  type PaymentGatewayLog,
   type ReportsSummary,
   type Session,
   type TransactionRecord,
@@ -26,15 +24,12 @@ const EMPTY_REPORT: ReportsSummary = {
   failedPaymentCount: 0,
   openDisputeCount: 0,
   heldEscrowCount: 0,
-  gatewayAttemptCount: 0,
-  gatewayFailureCount: 0,
 };
 
 export default function AdminReportsPage() {
   const [session, setSession] = useState<Session | null>(null);
   const [report, setReport] = useState<ReportsSummary>(EMPTY_REPORT);
   const [transactions, setTransactions] = useState<TransactionRecord[]>([]);
-  const [paymentGatewayLogs, setPaymentGatewayLogs] = useState<PaymentGatewayLog[]>([]);
 
   useEffect(() => {
     ensurePrototypeData();
@@ -44,7 +39,6 @@ export default function AdminReportsPage() {
       setSession(getSession());
       setReport(getReportsSummary());
       setTransactions(getTransactions());
-      setPaymentGatewayLogs(getPaymentGatewayLogs());
     };
 
     refresh();
@@ -90,7 +84,7 @@ export default function AdminReportsPage() {
           </div>
         </section>
 
-        <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <div className="rounded-md border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-700">
             Transactions: {report.transactionCount}
           </div>
@@ -99,12 +93,6 @@ export default function AdminReportsPage() {
           </div>
           <div className="rounded-md border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-700">
             Held escrows: {report.heldEscrowCount}
-          </div>
-          <div className="rounded-md border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-700">
-            Gateway attempts: {report.gatewayAttemptCount}
-          </div>
-          <div className="rounded-md border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-700">
-            Gateway failures: {report.gatewayFailureCount}
           </div>
         </section>
 
@@ -143,44 +131,6 @@ export default function AdminReportsPage() {
           </div>
         </section>
 
-        <section className="rounded-md border border-zinc-200 bg-white p-5">
-          <h2 className="text-lg font-semibold text-zinc-900">Payment Gateway Logs</h2>
-
-          <div className="mt-4 overflow-x-auto">
-            <table className="min-w-full border-collapse text-sm">
-              <thead>
-                <tr className="border-b border-zinc-200 text-left text-xs uppercase tracking-[0.2em] text-zinc-500">
-                  <th className="px-2 py-2">Gateway</th>
-                  <th className="px-2 py-2">Status</th>
-                  <th className="px-2 py-2">Attempt</th>
-                  <th className="px-2 py-2">Amount</th>
-                  <th className="px-2 py-2">Message</th>
-                  <th className="px-2 py-2">Time</th>
-                </tr>
-              </thead>
-              <tbody>
-                {paymentGatewayLogs.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="px-2 py-4 text-zinc-600">
-                      No gateway logs yet.
-                    </td>
-                  </tr>
-                ) : (
-                  paymentGatewayLogs.slice(0, 24).map((item) => (
-                    <tr key={item.id} className="border-b border-zinc-100 text-zinc-700">
-                      <td className="px-2 py-3">{item.provider}</td>
-                      <td className="px-2 py-3">{item.status}</td>
-                      <td className="px-2 py-3">{item.attempt}</td>
-                      <td className="px-2 py-3">{formatThb(item.amountThb)}</td>
-                      <td className="px-2 py-3">{item.message}</td>
-                      <td className="px-2 py-3">{new Date(item.createdAtMs).toLocaleTimeString()}</td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </section>
       </main>
     </div>
   );

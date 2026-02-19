@@ -7,6 +7,7 @@ import {
   ensurePrototypeData,
   getDisputes,
   getSession,
+  getSessionUser,
   resolveDispute,
   settleDueAuctions,
   type DisputeCase,
@@ -20,6 +21,7 @@ type UiMessage = {
 
 export default function AdminDisputesPage() {
   const [session, setSession] = useState<Session | null>(null);
+  const [adminUserId, setAdminUserId] = useState<string | null>(null);
   const [disputes, setDisputes] = useState<DisputeCase[]>([]);
   const [resolutionNote, setResolutionNote] = useState<Record<string, string>>({});
   const [message, setMessage] = useState<UiMessage>({
@@ -32,7 +34,10 @@ export default function AdminDisputesPage() {
 
     const refresh = () => {
       settleDueAuctions();
-      setSession(getSession());
+      const nextSession = getSession();
+      const nextUser = getSessionUser();
+      setSession(nextSession);
+      setAdminUserId(nextUser?.role === "admin" ? nextUser.id : null);
       setDisputes(getDisputes());
     };
 
@@ -50,12 +55,18 @@ export default function AdminDisputesPage() {
     disputeId: string,
     status: "resolved_refund" | "resolved_release" | "rejected"
   ) {
+    if (!canAdminAct || !adminUserId) {
+      setMessage({ tone: "warning", text: "Sign in as admin to resolve disputes." });
+      return;
+    }
+
     const note = (resolutionNote[disputeId] ?? "").trim() || "Resolved by admin.";
-    const result = resolveDispute(disputeId, { status, note });
+    const result = resolveDispute(disputeId, { status, note }, adminUserId);
     setMessage({ tone: result.ok ? "success" : "warning", text: result.message });
   }
 
   const openCount = disputes.filter((item) => item.status === "open").length;
+  const canAdminAct = session?.role === "admin" && Boolean(adminUserId);
 
   const messageToneClass =
     message.tone === "success"
@@ -78,6 +89,12 @@ export default function AdminDisputesPage() {
       />
 
       <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-6 py-10">
+        {!canAdminAct ? (
+          <section className="rounded-md border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-900">
+            Sign in as admin to resolve dispute cases.
+          </section>
+        ) : null}
+
         <section className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="rounded-md border border-zinc-200 bg-white px-4 py-3">
             <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Total disputes</p>
@@ -117,12 +134,14 @@ export default function AdminDisputesPage() {
                           }))
                         }
                         placeholder="Resolution note"
+                        disabled={!canAdminAct}
                         className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none transition focus:border-zinc-500"
                       />
                       <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
                         <button
                           type="button"
                           onClick={() => handleResolve(item.id, "resolved_refund")}
+                          disabled={!canAdminAct}
                           className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-800 transition hover:border-zinc-400"
                         >
                           Resolve Refund
@@ -130,6 +149,7 @@ export default function AdminDisputesPage() {
                         <button
                           type="button"
                           onClick={() => handleResolve(item.id, "resolved_release")}
+                          disabled={!canAdminAct}
                           className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-800 transition hover:border-zinc-400"
                         >
                           Resolve Release
@@ -137,6 +157,7 @@ export default function AdminDisputesPage() {
                         <button
                           type="button"
                           onClick={() => handleResolve(item.id, "rejected")}
+                          disabled={!canAdminAct}
                           className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-800 transition hover:border-zinc-400"
                         >
                           Reject

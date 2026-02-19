@@ -188,8 +188,6 @@ export type ReportsSummary = {
   failedPaymentCount: number;
   openDisputeCount: number;
   heldEscrowCount: number;
-  gatewayAttemptCount: number;
-  gatewayFailureCount: number;
 };
 
 export type ActionResult<T = undefined> = {
@@ -273,6 +271,30 @@ function writeJson<T extends JsonValue>(key: string, value: T) {
     return;
   }
   window.localStorage.setItem(key, JSON.stringify(value));
+}
+
+function readSessionJson<T extends JsonValue>(key: string, fallback: T): T {
+  if (!hasWindow() || typeof window.sessionStorage === "undefined") {
+    return fallback;
+  }
+
+  const raw = window.sessionStorage.getItem(key);
+  if (!raw) {
+    return fallback;
+  }
+
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeSessionJson<T extends JsonValue>(key: string, value: T) {
+  if (!hasWindow() || typeof window.sessionStorage === "undefined") {
+    return;
+  }
+  window.sessionStorage.setItem(key, JSON.stringify(value));
 }
 
 function now() {
@@ -838,6 +860,20 @@ export function getUserById(userId: string) {
   return getUsers().find((item) => item.id === userId) ?? null;
 }
 
+function requireAdminActor(userId: string): ActionResult<{ actor: UserAccount }> {
+  const actor = getUserById(userId);
+  if (!actor) {
+    return { ok: false, message: "Admin account not found." };
+  }
+  if (actor.role !== "admin") {
+    return { ok: false, message: "Only admin accounts can perform this action." };
+  }
+  if (actor.status !== "active") {
+    return { ok: false, message: "Admin account is not active." };
+  }
+  return { ok: true, message: "Authorized", data: { actor } };
+}
+
 export function placeBidRealtime(
   auctionId: string,
   bidderId: string,
@@ -1223,9 +1259,14 @@ export function saveEscrowCaseProgress(
   nextState: {
     verificationStatus: VerificationStatus;
     shipmentStatus: ShipmentStatus;
-  }
+  },
+  adminUserId: string
 ): ActionResult<{ escrowCase: EscrowCase }> {
   ensurePrototypeData();
+  const adminCheck = requireAdminActor(adminUserId);
+  if (!adminCheck.ok) {
+    return { ok: false, message: adminCheck.message };
+  }
 
   const escrowCases = getEscrowCasesUnsafe();
   const caseIndex = escrowCases.findIndex((item) => item.id === caseId);
@@ -1517,9 +1558,14 @@ export function createDispute(payload: CreateDisputePayload): ActionResult<{ dis
 
 export function resolveDispute(
   disputeId: string,
-  resolution: ResolveDisputePayload
+  resolution: ResolveDisputePayload,
+  adminUserId: string
 ): ActionResult<{ dispute: DisputeCase }> {
   ensurePrototypeData();
+  const adminCheck = requireAdminActor(adminUserId);
+  if (!adminCheck.ok) {
+    return { ok: false, message: adminCheck.message };
+  }
 
   const disputes = getDisputesUnsafe();
   const notifications = getNotificationsUnsafe();
@@ -1584,9 +1630,14 @@ export function resolveDispute(
 export function setUserStatus(
   userId: string,
   status: UserStatus,
-  reason: string
+  reason: string,
+  adminUserId: string
 ): ActionResult<{ user: UserAccount }> {
   ensurePrototypeData();
+  const adminCheck = requireAdminActor(adminUserId);
+  if (!adminCheck.ok) {
+    return { ok: false, message: adminCheck.message };
+  }
 
   const users = getUsers();
   const notifications = getNotificationsUnsafe();
@@ -1695,7 +1746,6 @@ export function getReportsSummary(): ReportsSummary {
   ensurePrototypeData();
 
   const transactions = getTransactionsUnsafe();
-  const paymentGatewayLogs = getPaymentGatewayLogsUnsafe();
   const disputes = getDisputesUnsafe();
   const auctions = getAuctionsUnsafe();
   const escrowCases = getEscrowCasesUnsafe();
@@ -1725,8 +1775,6 @@ export function getReportsSummary(): ReportsSummary {
     failedPaymentCount: auctions.filter((item) => item.status === "payment_failed").length,
     openDisputeCount: disputes.filter((item) => item.status === "open").length,
     heldEscrowCount: escrowCases.filter((item) => item.escrowStatus === "held").length,
-    gatewayAttemptCount: paymentGatewayLogs.filter((item) => item.status === "initiated").length,
-    gatewayFailureCount: paymentGatewayLogs.filter((item) => item.status === "failed").length,
   };
 }
 
@@ -1831,6 +1879,10 @@ export function approveSellerListing(
   adminUserId: string
 ): ActionResult<{ listing: SellerListing; auction: Auction }> {
   ensurePrototypeData();
+  const adminCheck = requireAdminActor(adminUserId);
+  if (!adminCheck.ok) {
+    return { ok: false, message: adminCheck.message };
+  }
 
   const listings = getSellerListingsUnsafe();
   const auctions = getAuctionsUnsafe();
@@ -1906,6 +1958,10 @@ export function rejectSellerListing(
   reason: string
 ): ActionResult<{ listing: SellerListing }> {
   ensurePrototypeData();
+  const adminCheck = requireAdminActor(adminUserId);
+  if (!adminCheck.ok) {
+    return { ok: false, message: adminCheck.message };
+  }
 
   const rejectionReason = reason.trim();
   if (!rejectionReason) {
@@ -1972,17 +2028,33 @@ export function listMockCredentials() {
 }
 
 export function getSession() {
-  return readJson<Session | null>(KEYS.session, null);
+  const session = readSessionJson<Session | null>(KEYS.session, null);
+  if (session) {
+    return session;
+  }
+
+  // Migration from older builds where session was persisted in localStorage.
+  const legacySession = readJson<Session | null>(KEYS.session, null);
+  if (legacySession) {
+    writeSessionJson(KEYS.session, legacySession);
+    window.localStorage.removeItem(KEYS.session);
+  }
+
+  return legacySession;
 }
 
 export function setSession(session: Session) {
-  writeJson(KEYS.session, session);
+  writeSessionJson(KEYS.session, session);
 }
 
 export function clearSession() {
   if (!hasWindow()) {
     return;
   }
+  if (typeof window.sessionStorage !== "undefined") {
+    window.sessionStorage.removeItem(KEYS.session);
+  }
+  // Remove legacy key from older builds.
   window.localStorage.removeItem(KEYS.session);
 }
 
@@ -2016,9 +2088,9 @@ export function resetPrototypeData(options: ResetOptions = {}) {
   writeJson(KEYS.simCounter, 0);
 
   if (session) {
-    writeJson(KEYS.session, session);
+    setSession(session);
   } else {
-    window.localStorage.removeItem(KEYS.session);
+    clearSession();
   }
 }
 

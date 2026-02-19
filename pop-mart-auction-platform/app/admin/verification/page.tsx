@@ -35,7 +35,7 @@ type UiMessage = {
 
 export default function AdminVerificationPage() {
   const [session, setSession] = useState<Session | null>(null);
-  const [adminUserId, setAdminUserId] = useState<string>("admin-demo");
+  const [adminUserId, setAdminUserId] = useState<string | null>(null);
   const [escrowCases, setEscrowCases] = useState<EscrowCase[]>([]);
   const [listings, setListings] = useState<SellerListing[]>([]);
   const [users, setUsers] = useState<UserAccount[]>([]);
@@ -57,7 +57,7 @@ export default function AdminVerificationPage() {
       const nextUser = getSessionUser();
 
       setSession(nextSession);
-      setAdminUserId(nextUser?.role === "admin" ? nextUser.id : "admin-demo");
+      setAdminUserId(nextUser?.role === "admin" ? nextUser.id : null);
       setEscrowCases(nextEscrowCases);
       setListings(nextListings);
       setUsers(getAllUsers());
@@ -112,6 +112,11 @@ export default function AdminVerificationPage() {
   }
 
   function handleSaveCaseState(caseId: string) {
+    if (!canAdminAct || !adminUserId) {
+      setMessage({ tone: "warning", text: "Sign in as admin to update escrow workflows." });
+      return;
+    }
+
     const draft = caseDrafts[caseId];
     if (!draft) {
       setMessage({ tone: "warning", text: "Choose verification and shipment states before saving." });
@@ -121,17 +126,27 @@ export default function AdminVerificationPage() {
     const result = saveEscrowCaseProgress(caseId, {
       verificationStatus: draft.verificationStatus,
       shipmentStatus: draft.shipmentStatus,
-    });
+    }, adminUserId);
 
     setMessage({ tone: result.ok ? "success" : "warning", text: result.message });
   }
 
   function handleApproveListing(listingId: string) {
+    if (!canAdminAct || !adminUserId) {
+      setMessage({ tone: "warning", text: "Sign in as admin to review listing requests." });
+      return;
+    }
+
     const result = approveSellerListing(listingId, adminUserId);
     setMessage({ tone: result.ok ? "success" : "warning", text: result.message });
   }
 
   function handleRejectListing(listingId: string) {
+    if (!canAdminAct || !adminUserId) {
+      setMessage({ tone: "warning", text: "Sign in as admin to review listing requests." });
+      return;
+    }
+
     const reason = (listingReviewNote[listingId] ?? "").trim();
     if (!reason) {
       setMessage({ tone: "warning", text: "Rejection reason is required." });
@@ -150,6 +165,7 @@ export default function AdminVerificationPage() {
   const pendingListings = listings.filter((item) => item.status === "pending").length;
   const approvedListings = listings.filter((item) => item.status === "approved").length;
   const rejectedListings = listings.filter((item) => item.status === "rejected").length;
+  const canAdminAct = session?.role === "admin" && Boolean(adminUserId);
 
   const messageToneClass =
     message.tone === "success"
@@ -172,6 +188,12 @@ export default function AdminVerificationPage() {
       />
 
       <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-6 py-10">
+        {!canAdminAct ? (
+          <section className="rounded-md border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-900">
+            Sign in as admin to approve listings and save escrow workflow state changes.
+          </section>
+        ) : null}
+
         <section className="grid grid-cols-1 gap-3 sm:grid-cols-5">
           <div className="rounded-md border border-zinc-200 bg-white px-4 py-3">
             <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Held cases</p>
@@ -244,6 +266,7 @@ export default function AdminVerificationPage() {
                             }))
                           }
                           placeholder="Enter reason if rejecting"
+                          disabled={!canAdminAct}
                           className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none transition focus:border-zinc-500"
                         />
                       </label>
@@ -251,6 +274,7 @@ export default function AdminVerificationPage() {
                       <button
                         type="button"
                         onClick={() => handleApproveListing(listing.id)}
+                        disabled={!canAdminAct}
                         className="self-end rounded-md border border-zinc-900 bg-zinc-900 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-white transition hover:bg-zinc-800"
                       >
                         Approve
@@ -259,6 +283,7 @@ export default function AdminVerificationPage() {
                       <button
                         type="button"
                         onClick={() => handleRejectListing(listing.id)}
+                        disabled={!canAdminAct}
                         className="self-end rounded-md border border-rose-300 bg-rose-50 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-rose-700 transition hover:border-rose-400"
                       >
                         Reject
@@ -323,6 +348,7 @@ export default function AdminVerificationPage() {
                               event.target.value as VerificationStatus
                             )
                           }
+                          disabled={!canAdminAct}
                           className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none transition focus:border-zinc-500"
                         >
                           <option value="pending">pending</option>
@@ -340,6 +366,7 @@ export default function AdminVerificationPage() {
                           onChange={(event) =>
                             updateCaseDraft(item.id, "shipmentStatus", event.target.value as ShipmentStatus)
                           }
+                          disabled={!canAdminAct}
                           className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none transition focus:border-zinc-500"
                         >
                           <option value="pending_pickup">pending_pickup</option>
@@ -352,6 +379,7 @@ export default function AdminVerificationPage() {
                       <button
                         type="button"
                         onClick={() => handleSaveCaseState(item.id)}
+                        disabled={!canAdminAct}
                         className="self-end rounded-md border border-zinc-900 bg-zinc-900 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-white transition hover:bg-zinc-800"
                       >
                         Save State

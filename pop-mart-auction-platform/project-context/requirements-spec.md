@@ -40,7 +40,6 @@
 | prob_admin_6 | An admin wants to generate transaction and revenue reports |
 | prob_admin_7 | [NEW] An admin wants to approve or reject seller listing requests before any auction goes live |
 | prob_admin_8 | [NEW] An admin wants rejection decisions to include a mandatory reason |
-| prob_admin_9 | [NEW] An admin wants payment gateway attempt logs for audit and failure tracking |
 
 ## Functional Requirements
 | From Problem ID | Requirement ID | Functional Requirement |
@@ -69,4 +68,3 @@
 | prob_admin_6 | req_admin_6 | The system shall generate transaction and revenue reports for platform analysis. |
 | prob_admin_7 | req_admin_7 | [NEW] The system shall require admin approval before a seller listing is published as a live auction. |
 | prob_admin_8 | req_admin_8 | [NEW] The system shall require admins to enter a rejection reason when rejecting a seller listing request. |
-| prob_admin_9 | req_admin_9 | [NEW] The system shall log payment gateway attempts and outcomes for each auction settlement and expose them in admin reporting. |

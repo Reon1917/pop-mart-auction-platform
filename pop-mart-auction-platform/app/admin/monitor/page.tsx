@@ -11,6 +11,7 @@ import {
   getAllUsers,
   getBidActivity,
   getSession,
+  getSessionUser,
   resetPrototypeData,
   runMockCompetingBidTick,
   runPaymentRetryNow,
@@ -29,6 +30,7 @@ type UiMessage = {
 
 export default function AdminMonitorPage() {
   const [session, setSession] = useState<Session | null>(null);
+  const [adminUserId, setAdminUserId] = useState<string | null>(null);
   const [isDemoPanelOpen, setIsDemoPanelOpen] = useState(false);
   const [selectedDemoAuctionId, setSelectedDemoAuctionId] = useState<string | null>(null);
   const [auctions, setAuctions] = useState<Auction[]>([]);
@@ -44,7 +46,10 @@ export default function AdminMonitorPage() {
 
     const refresh = () => {
       settleDueAuctions();
-      setSession(getSession());
+      const nextSession = getSession();
+      const nextUser = getSessionUser();
+      setSession(nextSession);
+      setAdminUserId(nextUser?.role === "admin" ? nextUser.id : null);
       setAuctions(getAllAuctions());
       setEvents(getBidActivity());
       setUsers(getAllUsers());
@@ -79,21 +84,38 @@ export default function AdminMonitorPage() {
   }
 
   function handleSimulatedBid(auctionId: string) {
+    if (!canAdminAct) {
+      updateMessage("warning", "Sign in as admin to run demo controls.");
+      return;
+    }
     const result = runMockCompetingBidTick(auctionId);
     updateMessage(result.ok ? "success" : "warning", result.message);
   }
 
   function handleCloseAndProcess(auctionId: string) {
+    if (!canAdminAct) {
+      updateMessage("warning", "Sign in as admin to run demo controls.");
+      return;
+    }
     const result = closeAuctionAndProcessPayment(auctionId);
     updateMessage(result.ok ? "success" : "warning", result.message);
   }
 
   function handleRetryNow(auctionId: string) {
+    if (!canAdminAct) {
+      updateMessage("warning", "Sign in as admin to run demo controls.");
+      return;
+    }
     const result = runPaymentRetryNow(auctionId);
     updateMessage(result.ok ? "success" : "warning", result.message);
   }
 
   function handleSetDemoBuyerFunds(balanceThb: number) {
+    if (!canAdminAct) {
+      updateMessage("warning", "Sign in as admin to run demo controls.");
+      return;
+    }
+
     if (!demoBuyer) {
       updateMessage("warning", "Demo buyer account not found.");
       return;
@@ -104,9 +126,15 @@ export default function AdminMonitorPage() {
   }
 
   function handleResetDemo() {
+    if (!canAdminAct) {
+      updateMessage("warning", "Sign in as admin to run demo controls.");
+      return;
+    }
     resetPrototypeData();
     updateMessage("success", "Demo data reset.");
   }
+
+  const canAdminAct = session?.role === "admin" && Boolean(adminUserId);
 
   const messageToneClass =
     message.tone === "success"
@@ -129,6 +157,12 @@ export default function AdminMonitorPage() {
       />
 
       <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-6 py-10">
+        {!canAdminAct ? (
+          <section className="rounded-md border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-900">
+            Sign in as admin to run simulation controls.
+          </section>
+        ) : null}
+
         <section className={`rounded-md border px-5 py-4 text-sm ${messageToneClass}`}>{message.text}</section>
 
         <section className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_1fr]">
@@ -191,8 +225,9 @@ export default function AdminMonitorPage() {
         </section>
       </main>
 
-      <div className="fixed bottom-5 right-5 z-50">
-        {isDemoPanelOpen ? (
+      {canAdminAct ? (
+        <div className="fixed bottom-5 right-5 z-50">
+          {isDemoPanelOpen ? (
           <section className="w-[22rem] rounded-md border border-zinc-300 bg-white p-4 shadow-xl">
             <div className="flex items-center justify-between">
               <div>
@@ -311,16 +346,17 @@ export default function AdminMonitorPage() {
               Reset Demo
             </button>
           </section>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setIsDemoPanelOpen(true)}
-            className="rounded-md border border-zinc-900 bg-zinc-900 px-4 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-white shadow-lg transition hover:bg-zinc-800"
-          >
-            Demo Controls
-          </button>
-        )}
-      </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setIsDemoPanelOpen(true)}
+              className="rounded-md border border-zinc-900 bg-zinc-900 px-4 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-white shadow-lg transition hover:bg-zinc-800"
+            >
+              Demo Controls
+            </button>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }
