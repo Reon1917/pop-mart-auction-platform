@@ -100,6 +100,9 @@ export default function SellerProfilePage() {
             <Link href="/seller" className={topNavLinkClass(false)}>
               Dashboard
             </Link>
+            <Link href="/seller/auctions" className={topNavLinkClass(false)}>
+              Auctions
+            </Link>
             <Link href="/seller/payouts" className={topNavLinkClass(false)}>
               Payouts
             </Link>

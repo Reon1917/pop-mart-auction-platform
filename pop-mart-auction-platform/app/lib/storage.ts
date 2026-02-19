@@ -150,6 +150,8 @@ export type DisputeCase = {
   resolvedAtMs: number | null;
 };
 
+export type ListingStatus = "pending" | "approved" | "rejected";
+
 export type SellerListing = {
   id: string;
   title: string;
@@ -158,6 +160,11 @@ export type SellerListing = {
   startingBidThb: number;
   minIncrementThb: number;
   durationHours: number;
+  status: ListingStatus;
+  reviewReason: string;
+  reviewedAtMs: number | null;
+  reviewedByAdminId: string | null;
+  approvedAuctionId: string | null;
   createdAtMs: number;
 };
 
@@ -417,7 +424,18 @@ function setDisputes(disputes: DisputeCase[]) {
 }
 
 function getSellerListingsUnsafe() {
-  return readJson<SellerListing[]>(KEYS.listings, []);
+  return readJson<SellerListing[]>(KEYS.listings, []).map((item) => ({
+    ...item,
+    status: item.status ?? "pending",
+    reviewReason: typeof item.reviewReason === "string" ? item.reviewReason : "",
+    reviewedAtMs: typeof item.reviewedAtMs === "number" ? item.reviewedAtMs : null,
+    reviewedByAdminId: typeof item.reviewedByAdminId === "string" ? item.reviewedByAdminId : null,
+    approvedAuctionId: typeof item.approvedAuctionId === "string" ? item.approvedAuctionId : null,
+  }));
+}
+
+function setSellerListings(listings: SellerListing[]) {
+  writeJson(KEYS.listings, listings);
 }
 
 function pushNotification(
@@ -1731,14 +1749,14 @@ export function markNotificationRead(notificationId: string): ActionResult {
   return { ok: true, message: "Notification marked as read." };
 }
 
-export function createSellerAuction(input: {
+export function createSellerListingRequest(input: {
   sellerId: string;
   title: string;
   series: string;
   startingBidThb: number;
   minIncrementThb: number;
   durationHours: number;
-}): ActionResult<{ auction: Auction }> {
+}): ActionResult<{ listing: SellerListing }> {
   ensurePrototypeData();
 
   if (input.durationHours < 1 || input.durationHours > 24) {
@@ -1749,28 +1767,200 @@ export function createSellerAuction(input: {
     return { ok: false, message: "Starting bid and increment must be positive." };
   }
 
-  const auctions = getAuctionsUnsafe();
+  const users = getUsers();
+  const notifications = getNotificationsUnsafe();
+  const listings = getSellerListingsUnsafe();
 
-  const auction: Auction = {
-    id: makeId("auction"),
-    title: input.title.trim(),
+  const seller = users.find((user) => user.id === input.sellerId);
+  if (!seller || seller.role !== "seller") {
+    return { ok: false, message: "Seller account not found." };
+  }
+
+  const title = input.title.trim();
+  if (!title) {
+    return { ok: false, message: "Item title is required." };
+  }
+
+  const createdAtMs = now();
+  const listing: SellerListing = {
+    id: makeId("listing"),
+    title,
     series: input.series.trim() || "Pop Mart",
     sellerId: input.sellerId,
-    currentBidThb: Math.round(input.startingBidThb),
+    startingBidThb: Math.round(input.startingBidThb),
     minIncrementThb: Math.round(input.minIncrementThb),
+    durationHours: Math.round(input.durationHours),
+    status: "pending",
+    reviewReason: "",
+    reviewedAtMs: null,
+    reviewedByAdminId: null,
+    approvedAuctionId: null,
+    createdAtMs,
+  };
+
+  listings.unshift(listing);
+  for (const admin of users.filter((user) => user.role === "admin")) {
+    pushNotification(
+      notifications,
+      admin.id,
+      "account",
+      "Listing review required",
+      `${seller.name} submitted "${listing.title}" for approval.`
+    );
+  }
+  pushNotification(
+    notifications,
+    seller.id,
+    "account",
+    "Listing submitted",
+    `${listing.title} is pending admin approval before it can go live.`
+  );
+
+  setSellerListings(listings);
+  setNotifications(notifications);
+
+  return {
+    ok: true,
+    message: "Listing submitted for admin review.",
+    data: { listing },
+  };
+}
+
+export function approveSellerListing(
+  listingId: string,
+  adminUserId: string
+): ActionResult<{ listing: SellerListing; auction: Auction }> {
+  ensurePrototypeData();
+
+  const listings = getSellerListingsUnsafe();
+  const auctions = getAuctionsUnsafe();
+  const users = getUsers();
+  const notifications = getNotificationsUnsafe();
+
+  const listingIndex = listings.findIndex((item) => item.id === listingId);
+  if (listingIndex < 0) {
+    return { ok: false, message: "Listing request not found." };
+  }
+
+  const listing = listings[listingIndex];
+  if (listing.status !== "pending") {
+    return { ok: false, message: "Listing is already reviewed." };
+  }
+
+  const seller = users.find((user) => user.id === listing.sellerId);
+  if (!seller) {
+    return { ok: false, message: "Seller account not found." };
+  }
+
+  const createdAtMs = now();
+  const auction: Auction = {
+    id: makeId("auction"),
+    title: listing.title,
+    series: listing.series,
+    sellerId: listing.sellerId,
+    currentBidThb: listing.startingBidThb,
+    minIncrementThb: listing.minIncrementThb,
     bidsCount: 0,
     highestBidderId: null,
-    endsAtMs: now() + input.durationHours * 60 * 60 * 1000,
+    endsAtMs: createdAtMs + listing.durationHours * 60 * 60 * 1000,
     status: "live",
     paymentAttempts: 0,
     paymentRetryDueAtMs: null,
-    createdAtMs: now(),
+    createdAtMs,
   };
 
-  auctions.unshift(auction);
-  setAuctions(auctions);
+  const nextListing: SellerListing = {
+    ...listing,
+    status: "approved",
+    reviewReason: "",
+    reviewedAtMs: createdAtMs,
+    reviewedByAdminId: adminUserId,
+    approvedAuctionId: auction.id,
+  };
 
-  return { ok: true, message: "Auction created.", data: { auction } };
+  listings[listingIndex] = nextListing;
+  auctions.unshift(auction);
+
+  pushNotification(
+    notifications,
+    listing.sellerId,
+    "account",
+    "Listing approved",
+    `${listing.title} was approved and is now live.`
+  );
+
+  setSellerListings(listings);
+  setAuctions(auctions);
+  setNotifications(notifications);
+
+  return {
+    ok: true,
+    message: "Listing approved and auction published.",
+    data: { listing: nextListing, auction },
+  };
+}
+
+export function rejectSellerListing(
+  listingId: string,
+  adminUserId: string,
+  reason: string
+): ActionResult<{ listing: SellerListing }> {
+  ensurePrototypeData();
+
+  const rejectionReason = reason.trim();
+  if (!rejectionReason) {
+    return { ok: false, message: "Rejection reason is required." };
+  }
+
+  const listings = getSellerListingsUnsafe();
+  const notifications = getNotificationsUnsafe();
+  const listingIndex = listings.findIndex((item) => item.id === listingId);
+  if (listingIndex < 0) {
+    return { ok: false, message: "Listing request not found." };
+  }
+
+  const listing = listings[listingIndex];
+  if (listing.status !== "pending") {
+    return { ok: false, message: "Listing is already reviewed." };
+  }
+
+  const nextListing: SellerListing = {
+    ...listing,
+    status: "rejected",
+    reviewReason: rejectionReason,
+    reviewedAtMs: now(),
+    reviewedByAdminId: adminUserId,
+    approvedAuctionId: null,
+  };
+
+  listings[listingIndex] = nextListing;
+  pushNotification(
+    notifications,
+    listing.sellerId,
+    "account",
+    "Listing rejected",
+    `${listing.title} was rejected. Reason: ${rejectionReason}`
+  );
+
+  setSellerListings(listings);
+  setNotifications(notifications);
+
+  return {
+    ok: true,
+    message: "Listing rejected with reason.",
+    data: { listing: nextListing },
+  };
+}
+
+export function createSellerAuction(input: {
+  sellerId: string;
+  title: string;
+  series: string;
+  startingBidThb: number;
+  minIncrementThb: number;
+  durationHours: number;
+}): ActionResult<{ listing: SellerListing }> {
+  return createSellerListingRequest(input);
 }
 
 export function getMockCredentials(role: UserRole) {
