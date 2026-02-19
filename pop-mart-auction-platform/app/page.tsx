@@ -62,7 +62,7 @@ export default function HomePage() {
         <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-6 py-5">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
-              Requirement-Locked Prototype
+              Prototype Demo
             </p>
             <h1 className="text-lg font-semibold text-zinc-900">Pop Mart Auction Platform</h1>
           </div>
@@ -97,10 +97,9 @@ export default function HomePage() {
 
       <main className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-6 py-10">
         <section className="rounded-md border border-zinc-200 bg-white p-6">
-          <h2 className="text-2xl font-semibold text-zinc-900">Strict 1:1 Requirement Coverage</h2>
+          <h2 className="text-2xl font-semibold text-zinc-900">Auction Operations Snapshot</h2>
           <p className="mt-2 text-sm text-zinc-600">
-            Buyer, Seller, and Admin flows include only the updated functional requirements with
-            mock data and local state.
+            Live prototype data for auctions, fulfillment, and disputes.
           </p>
           <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
             <div className="rounded-md border border-zinc-200 bg-zinc-50 px-4 py-3">

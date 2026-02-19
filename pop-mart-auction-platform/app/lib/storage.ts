@@ -1049,6 +1049,140 @@ export function advanceEscrowWorkflow(
   return { ok: true, message: "Escrow workflow updated.", data: { escrowCase: nextCase } };
 }
 
+const SHIPMENT_STAGE_ORDER: Record<ShipmentStatus, number> = {
+  pending_pickup: 0,
+  picked_up: 1,
+  in_transit: 2,
+  delivered: 3,
+};
+
+export function saveEscrowCaseProgress(
+  caseId: string,
+  nextState: {
+    verificationStatus: VerificationStatus;
+    shipmentStatus: ShipmentStatus;
+  }
+): ActionResult<{ escrowCase: EscrowCase }> {
+  ensurePrototypeData();
+
+  const escrowCases = getEscrowCasesUnsafe();
+  const caseIndex = escrowCases.findIndex((item) => item.id === caseId);
+  if (caseIndex < 0) {
+    return { ok: false, message: "Escrow case not found." };
+  }
+
+  const currentCase = escrowCases[caseIndex];
+  if (currentCase.escrowStatus !== "held") {
+    return {
+      ok: false,
+      message: "Case is closed and cannot be edited.",
+    };
+  }
+
+  if (
+    currentCase.verificationStatus !== "pending" &&
+    nextState.verificationStatus !== currentCase.verificationStatus
+  ) {
+    return {
+      ok: false,
+      message: "Verification state is locked after it leaves pending.",
+    };
+  }
+
+  const currentShipmentOrder = SHIPMENT_STAGE_ORDER[currentCase.shipmentStatus];
+  const nextShipmentOrder = SHIPMENT_STAGE_ORDER[nextState.shipmentStatus];
+  if (nextShipmentOrder < currentShipmentOrder) {
+    return { ok: false, message: "Shipment stage cannot move backward." };
+  }
+
+  if (
+    nextState.verificationStatus !== "passed" &&
+    (nextState.shipmentStatus === "in_transit" || nextState.shipmentStatus === "delivered")
+  ) {
+    return {
+      ok: false,
+      message: "Shipment cannot move to in_transit or delivered before verification passes.",
+    };
+  }
+
+  if (
+    nextState.verificationStatus === "failed" &&
+    SHIPMENT_STAGE_ORDER[nextState.shipmentStatus] > SHIPMENT_STAGE_ORDER.picked_up
+  ) {
+    return {
+      ok: false,
+      message: "Failed verification cannot continue shipment beyond picked_up.",
+    };
+  }
+
+  const nextCase: EscrowCase = {
+    ...currentCase,
+    verificationStatus: nextState.verificationStatus,
+    shipmentStatus: nextState.shipmentStatus,
+    updatedAtMs: now(),
+    note:
+      nextState.verificationStatus === "failed"
+        ? "Verification failed and refund initiated."
+        : nextState.shipmentStatus === "delivered"
+          ? "Delivered to buyer. Case will be closed."
+          : `State saved: verification ${nextState.verificationStatus}, shipment ${nextState.shipmentStatus}.`,
+  };
+
+  escrowCases[caseIndex] = nextCase;
+  setEscrowCases(escrowCases);
+
+  if (nextState.verificationStatus === "failed") {
+    const refundResult = issueRefund(caseId, "Verification failed");
+    if (!refundResult.ok) {
+      return { ok: false, message: refundResult.message };
+    }
+    const refreshed = getEscrowCasesUnsafe().find((item) => item.id === caseId);
+    if (!refreshed) {
+      return { ok: false, message: "Escrow case missing after refund." };
+    }
+    return {
+      ok: true,
+      message: "State saved. Verification failed and refund issued; case is now closed.",
+      data: { escrowCase: refreshed },
+    };
+  }
+
+  if (nextState.verificationStatus === "passed" && nextState.shipmentStatus === "delivered") {
+    const payoutResult = releaseSellerPayout(caseId);
+    if (!payoutResult.ok) {
+      return { ok: false, message: payoutResult.message };
+    }
+    const refreshed = getEscrowCasesUnsafe().find((item) => item.id === caseId);
+    if (!refreshed) {
+      return { ok: false, message: "Escrow case missing after payout." };
+    }
+    return {
+      ok: true,
+      message: "State saved. Delivered case is now closed and payout released.",
+      data: { escrowCase: refreshed },
+    };
+  }
+
+  const notifications = getNotificationsUnsafe();
+  pushNotification(
+    notifications,
+    nextCase.buyerId,
+    "shipment",
+    "Case update",
+    `${nextCase.title}: ${nextCase.note}`
+  );
+  pushNotification(
+    notifications,
+    nextCase.sellerId,
+    "shipment",
+    "Case update",
+    `${nextCase.title}: ${nextCase.note}`
+  );
+  setNotifications(notifications);
+
+  return { ok: true, message: "State saved.", data: { escrowCase: nextCase } };
+}
+
 export function issueRefund(caseId: string, reason: string): ActionResult<{ escrowCase: EscrowCase }> {
   ensurePrototypeData();
 

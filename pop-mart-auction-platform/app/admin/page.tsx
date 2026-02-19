@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatThb } from "@/app/lib/format";
 import {
-  advanceEscrowWorkflow,
   closeAuctionAndProcessPayment,
   clearSession,
   ensurePrototypeData,
@@ -21,6 +20,7 @@ import {
   resolveDispute,
   runMockCompetingBidTick,
   runPaymentRetryNow,
+  saveEscrowCaseProgress,
   setUserBalance,
   setUserStatus,
   settleDueAuctions,
@@ -30,8 +30,10 @@ import {
   type EscrowCase,
   type ReportsSummary,
   type Session,
+  type ShipmentStatus,
   type TransactionRecord,
   type UserAccount,
+  type VerificationStatus,
 } from "@/app/lib/storage";
 
 type AdminTab = "monitor" | "verification" | "disputes" | "users" | "reports";
@@ -39,6 +41,11 @@ type AdminTab = "monitor" | "verification" | "disputes" | "users" | "reports";
 type UiMessage = {
   tone: "neutral" | "success" | "warning";
   text: string;
+};
+
+type CaseDraft = {
+  verificationStatus: VerificationStatus;
+  shipmentStatus: ShipmentStatus;
 };
 
 const EMPTY_REPORT: ReportsSummary = {
@@ -63,6 +70,7 @@ export default function AdminPage() {
   const [transactions, setTransactions] = useState<TransactionRecord[]>([]);
   const [report, setReport] = useState<ReportsSummary>(EMPTY_REPORT);
   const [resolutionNote, setResolutionNote] = useState<Record<string, string>>({});
+  const [caseDrafts, setCaseDrafts] = useState<Record<string, CaseDraft>>({});
   const [message, setMessage] = useState<UiMessage>({
     tone: "neutral",
     text: "Admin controls are active.",
@@ -70,14 +78,37 @@ export default function AdminPage() {
 
   const refreshData = useCallback(() => {
     settleDueAuctions();
-    setSession(getSession());
-    setAuctions(getAllAuctions());
-    setEvents(getBidActivity());
-    setEscrowCases(getEscrowCases());
-    setDisputes(getDisputes());
-    setUsers(getAllUsers());
-    setTransactions(getTransactions());
-    setReport(getReportsSummary());
+    const nextSession = getSession();
+    const nextAuctions = getAllAuctions();
+    const nextEvents = getBidActivity();
+    const nextEscrowCases = getEscrowCases();
+    const nextDisputes = getDisputes();
+    const nextUsers = getAllUsers();
+    const nextTransactions = getTransactions();
+    const nextReport = getReportsSummary();
+
+    setSession(nextSession);
+    setAuctions(nextAuctions);
+    setEvents(nextEvents);
+    setEscrowCases(nextEscrowCases);
+    setDisputes(nextDisputes);
+    setUsers(nextUsers);
+    setTransactions(nextTransactions);
+    setReport(nextReport);
+
+    setCaseDrafts((previous) => {
+      const next: Record<string, CaseDraft> = {};
+      for (const item of nextEscrowCases) {
+        const existing = previous[item.id];
+        next[item.id] = existing
+          ? existing
+          : {
+              verificationStatus: item.verificationStatus,
+              shipmentStatus: item.shipmentStatus,
+            };
+      }
+      return next;
+    });
   }, []);
 
   useEffect(() => {
@@ -105,11 +136,37 @@ export default function AdminPage() {
     setMessage({ tone, text });
   }
 
-  function handleEscrowAction(
+  function updateCaseDraft(
     caseId: string,
-    action: "pickup" | "verify_pass" | "verify_fail" | "ship_to_buyer" | "mark_delivered"
+    field: keyof CaseDraft,
+    value: VerificationStatus | ShipmentStatus
   ) {
-    const result = advanceEscrowWorkflow(caseId, action);
+    setCaseDrafts((previous) => ({
+      ...previous,
+      [caseId]: {
+        verificationStatus:
+          field === "verificationStatus"
+            ? (value as VerificationStatus)
+            : previous[caseId]?.verificationStatus ?? "pending",
+        shipmentStatus:
+          field === "shipmentStatus"
+            ? (value as ShipmentStatus)
+            : previous[caseId]?.shipmentStatus ?? "pending_pickup",
+      },
+    }));
+  }
+
+  function handleSaveCaseState(caseId: string) {
+    const draft = caseDrafts[caseId];
+    if (!draft) {
+      updateMessage("warning", "Choose verification and shipment states before saving.");
+      return;
+    }
+
+    const result = saveEscrowCaseProgress(caseId, {
+      verificationStatus: draft.verificationStatus,
+      shipmentStatus: draft.shipmentStatus,
+    });
     updateMessage(result.ok ? "success" : "warning", result.message);
     refreshData();
   }
@@ -371,7 +428,8 @@ export default function AdminPage() {
           <section className="rounded-md border border-zinc-200 bg-white p-5">
             <h2 className="text-lg font-semibold text-zinc-900">Escrow & Verification Workflow</h2>
             <p className="mt-1 text-sm text-zinc-600">
-              Payment remains in escrow until verification passes and delivery completes.
+              Select the next verification and shipment states, then press Save. Delivered closes
+              the case and releases payout.
             </p>
 
             <div className="mt-4 flex flex-col gap-3">
@@ -397,43 +455,64 @@ export default function AdminPage() {
                       <div className="rounded-md border border-zinc-200 bg-white px-3 py-2">Net: {formatThb(item.netPayoutThb)}</div>
                     </div>
 
-                    <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
-                      <button
-                        type="button"
-                        onClick={() => handleEscrowAction(item.id, "pickup")}
-                        className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-800 transition hover:border-zinc-400"
-                      >
-                        Pickup
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleEscrowAction(item.id, "verify_pass")}
-                        className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-800 transition hover:border-zinc-400"
-                      >
-                        Verify Pass
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleEscrowAction(item.id, "verify_fail")}
-                        className="rounded-md border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-rose-700 transition hover:border-rose-400"
-                      >
-                        Verify Fail
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleEscrowAction(item.id, "ship_to_buyer")}
-                        className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-800 transition hover:border-zinc-400"
-                      >
-                        Ship
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleEscrowAction(item.id, "mark_delivered")}
-                        className="rounded-md border border-zinc-900 bg-zinc-900 px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-white transition hover:bg-zinc-800"
-                      >
-                        Delivered
-                      </button>
-                    </div>
+                    {item.escrowStatus === "held" ? (
+                      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_auto]">
+                        <label className="flex flex-col gap-1">
+                          <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                            Verification (save)
+                          </span>
+                          <select
+                            value={caseDrafts[item.id]?.verificationStatus ?? item.verificationStatus}
+                            onChange={(event) =>
+                              updateCaseDraft(
+                                item.id,
+                                "verificationStatus",
+                                event.target.value as VerificationStatus
+                              )
+                            }
+                            className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none transition focus:border-zinc-500"
+                          >
+                            <option value="pending">pending</option>
+                            <option value="passed">passed</option>
+                            <option value="failed">failed</option>
+                          </select>
+                        </label>
+
+                        <label className="flex flex-col gap-1">
+                          <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                            Shipment (save)
+                          </span>
+                          <select
+                            value={caseDrafts[item.id]?.shipmentStatus ?? item.shipmentStatus}
+                            onChange={(event) =>
+                              updateCaseDraft(
+                                item.id,
+                                "shipmentStatus",
+                                event.target.value as ShipmentStatus
+                              )
+                            }
+                            className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none transition focus:border-zinc-500"
+                          >
+                            <option value="pending_pickup">pending_pickup</option>
+                            <option value="picked_up">picked_up</option>
+                            <option value="in_transit">in_transit</option>
+                            <option value="delivered">delivered</option>
+                          </select>
+                        </label>
+
+                        <button
+                          type="button"
+                          onClick={() => handleSaveCaseState(item.id)}
+                          className="self-end rounded-md border border-zinc-900 bg-zinc-900 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-white transition hover:bg-zinc-800"
+                        >
+                          Save State
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="mt-3 rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-700">
+                        Case closed ({item.escrowStatus}). No further state changes allowed.
+                      </div>
+                    )}
                   </div>
                 ))
               )}
