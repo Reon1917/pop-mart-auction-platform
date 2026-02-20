@@ -219,6 +219,33 @@ export default function AdminVerificationPage() {
 
         <section className={`rounded-md border px-5 py-4 text-sm ${messageToneClass}`}>{message.text}</section>
 
+        <section className="rounded-md border border-dashed border-zinc-300 bg-white p-5">
+          <h2 className="text-lg font-semibold text-zinc-900">Report Image Placeholders</h2>
+          <p className="mt-1 text-sm text-zinc-600">
+            Capture these with the related UI state for approval and post-auction verification evidence.
+          </p>
+
+          <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
+            <div className="rounded-md border border-zinc-200 bg-zinc-50 p-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                Listing approval workflow
+              </p>
+              <div className="mt-2 flex h-24 items-center justify-center rounded-md border border-dashed border-zinc-400 bg-white text-sm font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                image
+              </div>
+            </div>
+
+            <div className="rounded-md border border-zinc-200 bg-zinc-50 p-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                Post-auction item verification
+              </p>
+              <div className="mt-2 flex h-24 items-center justify-center rounded-md border border-dashed border-zinc-400 bg-white text-sm font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                image
+              </div>
+            </div>
+          </div>
+        </section>
+
         <section className="rounded-md border border-zinc-200 bg-white p-5">
           <h2 className="text-lg font-semibold text-zinc-900">Listing Review Queue</h2>
           <p className="mt-1 text-sm text-zinc-600">
