@@ -14,8 +14,9 @@
 | prob_buy_4 | A buyer wants secure payment processing after winning |
 | prob_buy_5 | A buyer wants to receive a refund if the item fails verification |
 | prob_buy_6 | A buyer wants to track delivery status after purchase |
-| prob_buy_8 | [NEW] A buyer wants payment status visibility from the payment gateway during auction settlement |
-| prob_buy_9 | [NEW] A buyer wants to save payment method and shipping address for checkout simulation |
+| prob_buy_7 | [NEW] A buyer wants payment status visibility from the payment gateway during auction settlement |
+| prob_buy_8 | [NEW] A buyer wants to save payment method and shipping address on their profile page for checkout simulation |
+| prob_buy_9 | [NEW] A buyer wants clear handling if payment fails due to insufficient balance after winning an auction |
 
 ### Sellers
 | Problem ID | Problem Statement |
@@ -27,7 +28,7 @@
 | prob_sell_5 | A seller wants to track the verification status of their item |
 | prob_sell_6 | A seller wants transparency on service fee deductions |
 | prob_sell_7 | [NEW] A seller wants a clear reason if their listing is rejected during admin screening |
-| prob_sell_8 | [NEW] A seller wants to save payout method and address details for settlement simulation |
+| prob_sell_8 | [NEW] A seller wants to save payout method and address details on their profile page for settlement simulation |
 
 ### Admins
 | Problem ID | Problem Statement |
@@ -50,8 +51,9 @@
 | prob_buy_4 | req_buy_4 | The system shall process payment automatically after an auction win. |
 | prob_buy_5 | req_buy_5 | The system shall refund buyers if an item fails authenticity verification. |
 | prob_buy_6 | req_buy_6 | The system shall provide shipment tracking information to buyers. |
-| prob_buy_8 | req_buy_8 | [NEW] The system shall show buyers payment gateway status updates for their winning auction payments. |
-| prob_buy_9 | req_buy_9 | [NEW] The system shall allow buyers to save and update payment method and shipping address details. |
+| prob_buy_7 | req_buy_7 | [NEW] The system shall show buyers payment gateway status updates for their winning auction payments. |
+| prob_buy_8 | req_buy_8 | [NEW] The system shall allow buyers to save and update payment method and shipping address details on the profile page. |
+| prob_buy_9 | req_buy_9 | [NEW] The system shall detect insufficient balance on winner payment, mark payment as failed, notify the buyer, and block auction completion until a successful payment retry within policy. |
 | prob_sell_1 | req_sell_1 | The system shall release payment to sellers after verification and successful delivery. |
 | prob_sell_2 | req_sell_2 | The system shall prevent auction completion if payment is not successful. |
 | prob_sell_3 | req_sell_3 | The system shall allow sellers to select auction duration within defined limits. |
@@ -59,7 +61,7 @@
 | prob_sell_5 | req_sell_5 | The system shall allow sellers to track item verification status. |
 | prob_sell_6 | req_sell_6 | The system shall clearly display platform service fee deductions. |
 | prob_sell_7 | req_sell_7 | [NEW] The system shall show sellers the rejection reason when a listing request is rejected by admin. |
-| prob_sell_8 | req_sell_8 | [NEW] The system shall allow sellers to save and update payout method and address details. |
+| prob_sell_8 | req_sell_8 | [NEW] The system shall allow sellers to save and update payout method and address details on the profile page. |
 | prob_admin_1 | req_admin_1 | The system shall hold buyer payments in escrow until verification is complete. |
 | prob_admin_2 | req_admin_2 | The system shall manage the authenticity verification workflow. |
 | prob_admin_3 | req_admin_3 | The system shall allow admins to monitor live bidding activities. |
